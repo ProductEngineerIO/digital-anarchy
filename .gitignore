@@ -44,3 +44,6 @@ scripts/data/osm-military-raw.json
 # Iran events seed script + data (sensitive, not for public repo)
 scripts/seed-iran-events.mjs
 scripts/data/iran-events-latest.json
+
+# BMAD framework runtime (re-installed via `npx bmad-method install`, not project artifacts)
+_bmad/
