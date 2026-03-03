@@ -21,7 +21,7 @@ import type {
   InstitutionalGiving,
 } from '../../../../src/generated/server/worldmonitor/giving/v1/service_server';
 
-import { getCachedJson, setCachedJson } from '../../../_shared/redis';
+import { cachedFetchJson } from '../../../_shared/redis';
 
 const REDIS_CACHE_KEY = 'giving:summary:v1';
 const REDIS_CACHE_TTL = 3600; // 1 hour
@@ -175,48 +175,52 @@ export async function getGivingSummary(
   _ctx: ServerContext,
   req: GetGivingSummaryRequest,
 ): Promise<GetGivingSummaryResponse> {
-  // Check Redis cache first
-  const cached = await getCachedJson(REDIS_CACHE_KEY) as GetGivingSummaryResponse | null;
-  if (cached?.summary) return cached;
+  try {
+    const result = await cachedFetchJson<GetGivingSummaryResponse>(REDIS_CACHE_KEY, REDIS_CACHE_TTL, async () => {
+      const cryptoEstimate = getCryptoGivingEstimate();
+      const gofundme = getGoFundMeEstimate();
+      const globalGiving = getGlobalGivingEstimate();
+      const justGiving = getJustGivingEstimate();
+      const institutional = getInstitutionalBaseline();
 
-  // Gather estimates from all sources
-  const cryptoEstimate = getCryptoGivingEstimate();
-  const gofundme = getGoFundMeEstimate();
-  const globalGiving = getGlobalGivingEstimate();
-  const justGiving = getJustGivingEstimate();
-  const institutional = getInstitutionalBaseline();
+      const platforms = [gofundme, globalGiving, justGiving];
+      const categories = getDefaultCategories();
 
-  let platforms = [gofundme, globalGiving, justGiving];
-  if (req.platformLimit > 0) {
-    platforms = platforms.slice(0, req.platformLimit);
+      const activityIndex = computeActivityIndex(platforms, cryptoEstimate);
+      const trend = computeTrend(activityIndex);
+      const estimatedDailyFlowUsd = platforms.reduce((s, p) => s + p.dailyVolumeUsd, 0) + cryptoEstimate.dailyInflowUsd;
+
+      const summary: GivingSummary = {
+        generatedAt: new Date().toISOString(),
+        activityIndex,
+        trend,
+        estimatedDailyFlowUsd,
+        platforms,
+        categories,
+        crypto: cryptoEstimate,
+        institutional,
+      };
+
+      return { summary };
+    });
+
+    if (!result) return { summary: undefined as unknown as GivingSummary };
+
+    const summary = result.summary;
+    if (!summary) return { summary };
+
+    return {
+      summary: {
+        ...summary,
+        platforms: req.platformLimit > 0 && summary.platforms
+          ? summary.platforms.slice(0, req.platformLimit)
+          : summary.platforms,
+        categories: req.categoryLimit > 0 && summary.categories
+          ? summary.categories.slice(0, req.categoryLimit)
+          : summary.categories,
+      },
+    };
+  } catch {
+    return { summary: undefined as unknown as GivingSummary };
   }
-
-  // Use default category breakdown (from published reports)
-  let categories = getDefaultCategories();
-  if (req.categoryLimit > 0) {
-    categories = categories.slice(0, req.categoryLimit);
-  }
-
-  // Composite index
-  const activityIndex = computeActivityIndex(platforms, cryptoEstimate);
-  const trend = computeTrend(activityIndex);
-  const estimatedDailyFlowUsd = platforms.reduce((s, p) => s + p.dailyVolumeUsd, 0) + cryptoEstimate.dailyInflowUsd;
-
-  const summary: GivingSummary = {
-    generatedAt: new Date().toISOString(),
-    activityIndex,
-    trend,
-    estimatedDailyFlowUsd,
-    platforms,
-    categories,
-    crypto: cryptoEstimate,
-    institutional,
-  };
-
-  const response: GetGivingSummaryResponse = { summary };
-
-  // Cache result
-  await setCachedJson(REDIS_CACHE_KEY, response, REDIS_CACHE_TTL);
-
-  return response;
 }

@@ -80,10 +80,19 @@ export class TradePolicyPanel extends Panel {
       </div>
     `;
 
-    // Check for upstream unavailable across all data sources
-    const anyUnavailable = [this.restrictionsData, this.tariffsData, this.flowsData, this.barriersData]
-      .some(d => d?.upstreamUnavailable);
-    const unavailableBanner = anyUnavailable
+    // Only show unavailable banner when active tab has NO data and upstream is down
+    const activeHasData = this.activeTab === 'restrictions'
+      ? (this.restrictionsData?.restrictions.length ?? 0) > 0
+      : this.activeTab === 'tariffs'
+      ? (this.tariffsData?.datapoints.length ?? 0) > 0
+      : this.activeTab === 'flows'
+      ? (this.flowsData?.flows.length ?? 0) > 0
+      : (this.barriersData?.barriers.length ?? 0) > 0;
+    const activeData = this.activeTab === 'restrictions' ? this.restrictionsData
+      : this.activeTab === 'tariffs' ? this.tariffsData
+      : this.activeTab === 'flows' ? this.flowsData
+      : this.barriersData;
+    const unavailableBanner = !activeHasData && activeData?.upstreamUnavailable
       ? `<div class="economic-warning">${t('components.tradePolicy.upstreamUnavailable')}</div>`
       : '';
 
@@ -113,8 +122,8 @@ export class TradePolicyPanel extends Panel {
 
     return `<div class="trade-restrictions-list">
       ${this.restrictionsData.restrictions.map(r => {
-        const statusClass = r.status === 'IN_FORCE' ? 'status-active' : r.status === 'TERMINATED' ? 'status-terminated' : 'status-notified';
-        const statusLabel = r.status === 'IN_FORCE' ? t('components.tradePolicy.inForce') : r.status === 'TERMINATED' ? t('components.tradePolicy.terminated') : t('components.tradePolicy.notified');
+        const statusClass = r.status === 'high' ? 'status-active' : r.status === 'moderate' ? 'status-notified' : 'status-terminated';
+        const statusLabel = r.status === 'high' ? t('components.tradePolicy.highTariff') : r.status === 'moderate' ? t('components.tradePolicy.moderateTariff') : t('components.tradePolicy.lowTariff');
         const sourceLink = this.renderSourceUrl(r.sourceUrl);
         return `<div class="trade-restriction-card">
           <div class="trade-restriction-header">
@@ -141,11 +150,10 @@ export class TradePolicyPanel extends Panel {
       return `<div class="economic-empty">${t('components.tradePolicy.noTariffData')}</div>`;
     }
 
-    const rows = this.tariffsData.datapoints.map(d =>
+    const rows = [...this.tariffsData.datapoints].sort((a, b) => b.year - a.year).map(d =>
       `<tr>
         <td>${d.year}</td>
         <td>${d.tariffRate.toFixed(1)}%</td>
-        <td>${d.boundRate.toFixed(1)}%</td>
         <td>${escapeHtml(d.productSector || '—')}</td>
       </tr>`
     ).join('');
@@ -156,7 +164,6 @@ export class TradePolicyPanel extends Panel {
           <tr>
             <th>Year</th>
             <th>${t('components.tradePolicy.appliedRate')}</th>
-            <th>${t('components.tradePolicy.boundRate')}</th>
             <th>Sector</th>
           </tr>
         </thead>

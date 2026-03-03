@@ -25,20 +25,21 @@ const DIRECT_OPENSKY_BASE_URL = wsRelayUrl
 const isLocalhostRuntime = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
 // Cache configuration
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes - match refresh interval
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutes - reduce upstream API pressure
 let flightCache: { data: MilitaryFlight[]; timestamp: number } | null = null;
 
 // Track flight history for trails
 const flightHistory = new Map<string, { positions: [number, number][]; lastUpdate: number }>();
 const HISTORY_MAX_POINTS = 20;
 const HISTORY_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+let historyCleanupIntervalId: ReturnType<typeof setInterval> | null = null;
 
 // Circuit breaker for API calls
 const breaker = createCircuitBreaker<{ flights: MilitaryFlight[]; clusters: MilitaryFlightCluster[] }>({
   name: 'Military Flight Tracking',
   maxFailures: 3,
   cooldownMs: 5 * 60 * 1000, // 5 minute cooldown
-  cacheTtlMs: 5 * 60 * 1000, // 5 minute cache
+  cacheTtlMs: 10 * 60 * 1000,
 });
 
 // OpenSky API returns arrays in this order:
@@ -331,7 +332,6 @@ async function fetchFromOpenSky(): Promise<MilitaryFlight[]> {
     throw new Error('All regions failed — upstream may be down');
   }
 
-  console.log(`[Military Flights] Found ${allFlights.length} military aircraft from ${MILITARY_QUERY_REGIONS.length} regions`);
   return allFlights;
 }
 
@@ -344,12 +344,11 @@ async function enrichFlightsWithWingbits(flights: MilitaryFlight[]): Promise<Mil
   // Check if Wingbits is configured
   const isConfigured = await checkWingbitsStatus();
   if (!isConfigured) {
-    console.log('[Military Flights] Wingbits not configured, skipping enrichment');
     return flights;
   }
 
-  // Get hex codes for all flights
-  const hexCodes = flights.map(f => f.hexCode.toLowerCase());
+  // Use deterministic ordering to improve cache locality across refreshes.
+  const hexCodes = Array.from(new Set(flights.map((f) => f.hexCode.toLowerCase()))).sort();
 
   // Batch fetch aircraft details
   const detailsMap = await getAircraftDetailsBatch(hexCodes);
@@ -357,8 +356,6 @@ async function enrichFlightsWithWingbits(flights: MilitaryFlight[]): Promise<Mil
   if (detailsMap.size === 0) {
     return flights;
   }
-
-  console.log(`[Military Flights] Enriching ${detailsMap.size} of ${flights.length} aircraft with Wingbits data`);
 
   // Enrich each flight
   return flights.map(flight => {
@@ -501,7 +498,15 @@ function cleanupFlightHistory(): void {
 
 // Set up periodic cleanup
 if (typeof window !== 'undefined') {
-  setInterval(cleanupFlightHistory, HISTORY_CLEANUP_INTERVAL);
+  historyCleanupIntervalId = setInterval(cleanupFlightHistory, HISTORY_CLEANUP_INTERVAL);
+}
+
+/** Stop the periodic flight-history cleanup (for teardown / testing). */
+export function stopFlightHistoryCleanup(): void {
+  if (historyCleanupIntervalId) {
+    clearInterval(historyCleanupIntervalId);
+    historyCleanupIntervalId = null;
+  }
 }
 
 /**
@@ -538,7 +543,6 @@ export async function fetchMilitaryFlights(): Promise<{
     // Generate clusters
     const clusters = clusterFlights(flights);
 
-    console.log(`[Military Flights] Total: ${flights.length} flights, ${clusters.length} clusters`);
     return { flights, clusters };
   }, { flights: [], clusters: [] });
 }

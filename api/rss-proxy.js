@@ -1,36 +1,32 @@
-// Non-sebuf: returns XML/HTML, stays as standalone Vercel function
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+import { validateApiKey } from './_api-key.js';
+import { checkRateLimit } from './_rate-limit.js';
+import { getRelayBaseUrl, getRelayHeaders, fetchWithTimeout } from './_relay.js';
 
 export const config = { runtime: 'edge' };
 
-// Fetch with timeout
-async function fetchWithTimeout(url, options, timeoutMs = 15000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    return response;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function getRelayBaseUrl() {
-  const relayUrl = process.env.WS_RELAY_URL || '';
-  if (!relayUrl) return '';
-  return relayUrl.replace('wss://', 'https://').replace('ws://', 'http://').replace(/\/$/, '');
-}
-
-function getRelayHeaders(baseHeaders = {}) {
-  const headers = { ...baseHeaders };
-  const relaySecret = process.env.RELAY_SHARED_SECRET || '';
-  if (relaySecret) {
-    const relayHeader = (process.env.RELAY_AUTH_HEADER || 'x-relay-key').toLowerCase();
-    headers[relayHeader] = relaySecret;
-    headers.Authorization = `Bearer ${relaySecret}`;
-  }
-  return headers;
-}
+// Domains that consistently block Vercel edge IPs — skip direct fetch,
+// go straight to Railway relay to avoid wasted invocation + timeout.
+const RELAY_ONLY_DOMAINS = new Set([
+  'rss.cnn.com',
+  'www.defensenews.com',
+  'layoffs.fyi',
+  'news.un.org',
+  'www.cisa.gov',
+  'www.iaea.org',
+  'www.who.int',
+  'www.crisisgroup.org',
+  'english.alarabiya.net',
+  'www.arabnews.com',
+  'www.timesofisrael.com',
+  'www.scmp.com',
+  'kyivindependent.com',
+  'www.themoscowtimes.com',
+  'feeds.24.com',
+  'feeds.capi24.com',
+  'islandtimes.org',
+  'www.atlanticcouncil.org',
+]);
 
 async function fetchViaRailway(feedUrl, timeoutMs) {
   const relayBaseUrl = getRelayBaseUrl();
@@ -51,6 +47,7 @@ const ALLOWED_DOMAINS = [
   'feeds.npr.org',
   'news.google.com',
   'www.aljazeera.com',
+  'www.aljazeera.net',
   'rss.cnn.com',
   'hnrss.org',
   'feeds.arstechnica.com',
@@ -105,6 +102,7 @@ const ALLOWED_DOMAINS = [
   'www.techmeme.com',
   'www.darkreading.com',
   'www.schneier.com',
+  'www.ransomware.live',
   'rss.politico.com',
   'www.anandtech.com',
   'www.tomshardware.com',
@@ -122,6 +120,7 @@ const ALLOWED_DOMAINS = [
   // Additional tech variant domains
   'www.producthunt.com',
   'www.axios.com',
+  'api.axios.com',
   'github.blog',
   'githubnext.com',
   'mshibanami.github.io',
@@ -156,6 +155,9 @@ const ALLOWED_DOMAINS = [
   // Accelerators
   'www.techstars.com',
   // Middle East & Regional News
+  'asharqbusiness.com',
+  'asharq.com',
+  'www.omanobserver.om',
   'english.alarabiya.net',
   'www.arabnews.com',
   'www.timesofisrael.com',
@@ -164,14 +166,22 @@ const ALLOWED_DOMAINS = [
   'kyivindependent.com',
   'www.themoscowtimes.com',
   'feeds.24.com',
+  'feeds.news24.com',  // News24 main feed domain
   'feeds.capi24.com',  // News24 redirect destination
   // International News Sources
   'www.france24.com',
   'www.euronews.com',
+  'de.euronews.com',
+  'es.euronews.com',
+  'fr.euronews.com',
+  'it.euronews.com',
+  'pt.euronews.com',
+  'ru.euronews.com',
   'www.lemonde.fr',
   'rss.dw.com',
   'www.bild.de',
   'www.africanews.com',
+  'fr.africanews.com',
   // Nigeria
   'www.premiumtimesng.com',
   'www.vanguardngr.com',
@@ -186,6 +196,9 @@ const ALLOWED_DOMAINS = [
   'www.channelnewsasia.com',
   'japantoday.com',
   'www.thehindu.com',
+  'indianexpress.com',
+  'www.twz.com',
+  'gcaptain.com',
   // International Organizations
   'news.un.org',
   'www.iaea.org',
@@ -218,6 +231,30 @@ const ALLOWED_DOMAINS = [
   'www.fao.org',
   'worldbank.org',
   'www.imf.org',
+  // International news (various languages)
+  'www.bbc.com',
+  'www.spiegel.de',
+  'www.tagesschau.de',
+  'newsfeed.zeit.de',
+  'feeds.elpais.com',
+  'e00-elmundo.uecdn.es',
+  'www.repubblica.it',
+  'www.ansa.it',
+  'xml2.corriereobjects.it',
+  'feeds.nos.nl',
+  'www.nrc.nl',
+  'www.telegraaf.nl',
+  'www.dn.se',
+  'www.svd.se',
+  'www.svt.se',
+  'www.asahi.com',
+  'www.clarin.com',
+  'oglobo.globo.com',
+  'feeds.folha.uol.com.br',
+  'www.eltiempo.com',
+  'www.eluniversal.com.mx',
+  'www.jeuneafrique.com',
+  'www.lorientlejour.com',
   // Regional locale feeds (tr, pl, ru, th, vi, pt)
   'www.hurriyet.com.tr',
   'tvn24.pl',
@@ -242,6 +279,29 @@ const ALLOWED_DOMAINS = [
   'seekingalpha.com',
   'www.coindesk.com',
   'cointelegraph.com',
+  // Security advisories — government travel advisory feeds
+  'travel.state.gov',
+  'www.smartraveller.gov.au',
+  'www.safetravel.govt.nz',
+  // US Embassy security alerts
+  'th.usembassy.gov',
+  'ae.usembassy.gov',
+  'de.usembassy.gov',
+  'ua.usembassy.gov',
+  'mx.usembassy.gov',
+  'in.usembassy.gov',
+  'pk.usembassy.gov',
+  'co.usembassy.gov',
+  'pl.usembassy.gov',
+  'bd.usembassy.gov',
+  'it.usembassy.gov',
+  'do.usembassy.gov',
+  'mm.usembassy.gov',
+  // Health advisories
+  'wwwnc.cdc.gov',
+  'www.ecdc.europa.eu',
+  'www.who.int',
+  'www.afro.who.int',
   // Happy variant — positive news sources
   'www.goodnewsnetwork.org',
   'www.positive.news',
@@ -267,10 +327,34 @@ const ALLOWED_DOMAINS = [
 export default async function handler(req) {
   const corsHeaders = getCorsHeaders(req, 'GET, OPTIONS');
 
+  if (isDisallowedOrigin(req)) {
+    return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
+  if (req.method !== 'GET') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
+
+  const keyCheck = validateApiKey(req);
+  if (keyCheck.required && !keyCheck.valid) {
+    return new Response(JSON.stringify({ error: keyCheck.error }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
+
+  const rateLimitResponse = await checkRateLimit(req, corsHeaders);
+  if (rateLimitResponse) return rateLimitResponse;
 
   const requestUrl = new URL(req.url);
   const feedUrl = requestUrl.searchParams.get('url');
@@ -285,13 +369,18 @@ export default async function handler(req) {
   try {
     const parsedUrl = new URL(feedUrl);
 
-    // Security: Check if domain is allowed
-    if (!ALLOWED_DOMAINS.includes(parsedUrl.hostname)) {
+    // Security: Check if domain is allowed (normalize www prefix)
+    const hostname = parsedUrl.hostname;
+    const bare = hostname.replace(/^www\./, '');
+    const withWww = hostname.startsWith('www.') ? hostname : `www.${hostname}`;
+    if (!ALLOWED_DOMAINS.includes(hostname) && !ALLOWED_DOMAINS.includes(bare) && !ALLOWED_DOMAINS.includes(withWww)) {
       return new Response(JSON.stringify({ error: 'Domain not allowed' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
     }
+
+    const isRelayOnly = RELAY_ONLY_DOMAINS.has(hostname);
 
     // Google News is slow - use longer timeout
     const isGoogleNews = feedUrl.includes('news.google.com');
@@ -329,27 +418,44 @@ export default async function handler(req) {
 
     let response;
     let usedRelay = false;
-    try {
-      response = await fetchDirect();
-    } catch (directError) {
+
+    if (isRelayOnly) {
+      // Skip direct fetch entirely — these domains block Vercel IPs
       response = await fetchViaRailway(feedUrl, timeout);
       usedRelay = !!response;
-      if (!response) throw directError;
-    }
+      if (!response) throw new Error(`Railway relay unavailable for relay-only domain: ${hostname}`);
+    } else {
+      try {
+        response = await fetchDirect();
+      } catch (directError) {
+        response = await fetchViaRailway(feedUrl, timeout);
+        usedRelay = !!response;
+        if (!response) throw directError;
+      }
 
-    if (!response.ok && !usedRelay) {
-      const relayResponse = await fetchViaRailway(feedUrl, timeout);
-      if (relayResponse && relayResponse.ok) {
-        response = relayResponse;
+      if (!response.ok && !usedRelay) {
+        const relayResponse = await fetchViaRailway(feedUrl, timeout);
+        if (relayResponse && relayResponse.ok) {
+          response = relayResponse;
+        }
       }
     }
 
     const data = await response.text();
+    const isSuccess = response.status >= 200 && response.status < 300;
+    // Relay-only feeds are slow-updating institutional sources — cache longer
+    const cdnTtl = isRelayOnly ? 3600 : 900;
+    const swr = isRelayOnly ? 7200 : 1800;
+    const sie = isRelayOnly ? 14400 : 3600;
+    const browserTtl = isRelayOnly ? 600 : 180;
     return new Response(data, {
       status: response.status,
       headers: {
         'Content-Type': response.headers.get('content-type') || 'application/xml',
-        'Cache-Control': response.headers.get('cache-control') || 'public, max-age=600, s-maxage=600, stale-while-revalidate=300',
+        'Cache-Control': isSuccess
+          ? `public, max-age=${browserTtl}, s-maxage=${cdnTtl}, stale-while-revalidate=${swr}, stale-if-error=${sie}`
+          : 'public, max-age=15, s-maxage=60, stale-while-revalidate=120',
+        ...(isSuccess && { 'CDN-Cache-Control': `public, s-maxage=${cdnTtl}, stale-while-revalidate=${swr}, stale-if-error=${sie}` }),
         ...corsHeaders,
       },
     });

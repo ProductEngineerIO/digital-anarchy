@@ -34,7 +34,10 @@ export type DataSourceId =
   | 'worldpop'       // WorldPop population exposure
   | 'giving'         // Global giving activity data
   | 'bis'            // BIS central bank data
-  | 'wto_trade';     // WTO trade policy data
+  | 'wto_trade'      // WTO trade policy data
+  | 'supply_chain'   // Supply chain disruption intelligence
+  | 'security_advisories'  // Government travel/security advisories
+  | 'gpsjam';              // GPS/GNSS interference
 
 export type FreshnessStatus = 'fresh' | 'stale' | 'very_stale' | 'no_data' | 'disabled' | 'error';
 
@@ -99,6 +102,9 @@ const SOURCE_METADATA: Record<DataSourceId, { name: string; requiredForRisk: boo
   giving: { name: 'Global Giving Activity', requiredForRisk: false, panelId: 'giving' },
   bis: { name: 'BIS Central Banks', requiredForRisk: false, panelId: 'economic' },
   wto_trade: { name: 'WTO Trade Policy', requiredForRisk: false, panelId: 'trade-policy' },
+  supply_chain: { name: 'Supply Chain Intelligence', requiredForRisk: false, panelId: 'supply-chain' },
+  security_advisories: { name: 'Security Advisories', requiredForRisk: false, panelId: 'security-advisories' },
+  gpsjam: { name: 'GPS/GNSS Interference', requiredForRisk: false, panelId: 'map' },
 };
 
 class DataFreshnessTracker {
@@ -356,6 +362,9 @@ const INTELLIGENCE_GAP_MESSAGES: Record<DataSourceId, string> = {
   giving: 'Global giving activity data unavailable',
   bis: 'Central bank policy data may be stale—BIS feed unavailable',
   wto_trade: 'Trade policy intelligence unavailable—WTO data not updating',
+  supply_chain: 'Supply chain disruption status unavailable—chokepoint monitoring offline',
+  security_advisories: 'Government travel advisory data unavailable—security alerts may be missed',
+  gpsjam: 'GPS/GNSS interference data unavailable—jamming zones undetected',
 };
 
 /**

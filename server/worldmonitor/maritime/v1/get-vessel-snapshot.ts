@@ -1,5 +1,3 @@
-declare const process: { env: Record<string, string | undefined> };
-
 import type {
   ServerContext,
   GetVesselSnapshotRequest,
@@ -52,7 +50,7 @@ const SEVERITY_MAP: Record<string, AisDisruptionSeverity> = {
 };
 
 // In-memory cache (matches old /api/ais-snapshot behavior)
-const SNAPSHOT_CACHE_TTL_MS = 10_000; // 10 seconds -- matches client poll interval
+const SNAPSHOT_CACHE_TTL_MS = 300_000; // 5 min -- matches client poll interval
 let cachedSnapshot: VesselSnapshot | undefined;
 let cacheTimestamp = 0;
 let inFlightRequest: Promise<VesselSnapshot | undefined> | null = null;

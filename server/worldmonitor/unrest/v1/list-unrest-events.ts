@@ -22,7 +22,7 @@ import {
   sortBySeverityAndRecency,
 } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
-import { getCachedJson, setCachedJson } from '../../../_shared/redis';
+import { cachedFetchJson } from '../../../_shared/redis';
 import { fetchAcledCached } from '../../../_shared/acled';
 
 const REDIS_CACHE_KEY = 'unrest:events:v1';
@@ -33,8 +33,8 @@ const REDIS_CACHE_TTL = 900; // 15 min — ACLED + GDELT merge
 async function fetchAcledProtests(req: ListUnrestEventsRequest): Promise<UnrestEvent[]> {
   try {
     const now = Date.now();
-    const startMs = req.timeRange?.start ?? (now - 30 * 24 * 60 * 60 * 1000);
-    const endMs = req.timeRange?.end ?? now;
+    const startMs = req.start ?? (now - 30 * 24 * 60 * 60 * 1000);
+    const endMs = req.end ?? now;
     const startDate = new Date(startMs).toISOString().split('T')[0]!;
     const endDate = new Date(endMs).toISOString().split('T')[0]!;
 
@@ -162,21 +162,23 @@ export async function listUnrestEvents(
   req: ListUnrestEventsRequest,
 ): Promise<ListUnrestEventsResponse> {
   try {
-    const cacheKey = `${REDIS_CACHE_KEY}:${req.country || 'all'}:${req.timeRange?.start || 0}:${req.timeRange?.end || 0}`;
-    const cached = (await getCachedJson(cacheKey)) as ListUnrestEventsResponse | null;
-    if (cached?.events?.length) return cached;
-
-    const [acledEvents, gdeltEvents] = await Promise.all([
-      fetchAcledProtests(req),
-      fetchGdeltEvents(),
-    ]);
-    const merged = deduplicateEvents([...acledEvents, ...gdeltEvents]);
-    const sorted = sortBySeverityAndRecency(merged);
-    const result: ListUnrestEventsResponse = { events: sorted, clusters: [], pagination: undefined };
-    if (sorted.length > 0) {
-      setCachedJson(cacheKey, result, REDIS_CACHE_TTL).catch(() => {});
-    }
-    return result;
+    const startBucket = req.start > 0 ? new Date(req.start).toISOString().slice(0, 10) : 'default';
+    const endBucket = req.end > 0 ? new Date(req.end).toISOString().slice(0, 10) : 'default';
+    const cacheKey = `${REDIS_CACHE_KEY}:${req.country || 'all'}:${startBucket}:${endBucket}`;
+    const result = await cachedFetchJson<ListUnrestEventsResponse>(
+      cacheKey,
+      REDIS_CACHE_TTL,
+      async () => {
+        const [acledEvents, gdeltEvents] = await Promise.all([
+          fetchAcledProtests(req),
+          fetchGdeltEvents(),
+        ]);
+        const merged = deduplicateEvents([...acledEvents, ...gdeltEvents]);
+        const sorted = sortBySeverityAndRecency(merged);
+        return sorted.length > 0 ? { events: sorted, clusters: [], pagination: undefined } : null;
+      },
+    );
+    return result || { events: [], clusters: [], pagination: undefined };
   } catch {
     return { events: [], clusters: [], pagination: undefined };
   }
