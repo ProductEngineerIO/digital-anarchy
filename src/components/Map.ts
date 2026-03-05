@@ -5,7 +5,7 @@ import { getCSSColor } from '@/utils';
 import type { Topology, GeometryCollection } from 'topojson-specification';
 import type { Feature, Geometry } from 'geojson';
 import type { MapLayers, Hotspot, NewsItem, InternetOutage, RelatedAsset, AssetType, AisDisruptionEvent, AisDensityZone, CableAdvisory, RepairShip, SocialUnrestEvent, MilitaryFlight, MilitaryVessel, MilitaryFlightCluster, MilitaryVesselCluster, NaturalEvent, CyberThreat, CableHealthRecord } from '@/types';
-import type { AirportDelayAlert } from '@/services/aviation';
+import type { AirportDelayAlert, PositionSample } from '@/services/aviation';
 import type { Earthquake } from '@/services/earthquakes';
 import type { IranEvent } from '@/services/conflict';
 import type { TechHubActivity } from '@/services/tech-activity';
@@ -130,6 +130,7 @@ export class MapComponent {
   private healthByCableId: Record<string, CableHealthRecord> = {};
   private protests: SocialUnrestEvent[] = [];
   private flightDelays: AirportDelayAlert[] = [];
+  private aircraftPositions: PositionSample[] = [];
   private militaryFlights: MilitaryFlight[] = [];
   private militaryFlightClusters: MilitaryFlightCluster[] = [];
   private militaryVessels: MilitaryVessel[] = [];
@@ -1453,7 +1454,7 @@ export class MapComponent {
         const pos = projection([ev.longitude, ev.latitude]);
         if (!pos || !Number.isFinite(pos[0]) || !Number.isFinite(pos[1])) return;
 
-        const size = ev.severity === 'high' ? 14 : ev.severity === 'medium' ? 11 : 8;
+        const size = (ev.severity === 'high' || ev.severity === 'critical') ? 14 : ev.severity === 'medium' ? 11 : 8;
         const color = ev.category === 'military' ? 'rgba(255,50,50,0.85)'
           : (ev.category === 'politics' || ev.category === 'diplomacy') ? 'rgba(255,165,0,0.8)'
             : 'rgba(255,255,0,0.7)';
@@ -2435,6 +2436,40 @@ export class MapComponent {
           this.popup.show({
             type: 'flight',
             data: delay,
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          });
+        });
+
+        this.overlays.appendChild(div);
+      });
+    }
+
+    // Aircraft positions (simplified dots in SVG fallback, limited to 200)
+    if (this.state.layers.flights) {
+      this.aircraftPositions.slice(0, 200).forEach((ac) => {
+        const pt = projection([ac.lon, ac.lat]);
+        if (!pt) return;
+
+        const div = document.createElement('div');
+        div.className = 'aircraft-marker';
+        div.style.position = 'absolute';
+        div.style.left = `${pt[0]}px`;
+        div.style.top = `${pt[1]}px`;
+        div.style.transform = `rotate(${ac.trackDeg}deg)`;
+        div.style.fontSize = '12px';
+        div.style.color = ac.onGround ? '#888' : '#a064ff';
+        div.style.lineHeight = '1';
+        div.style.pointerEvents = 'auto';
+        div.style.cursor = 'pointer';
+        div.textContent = '\u25B2'; // ▲
+
+        div.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const rect = this.container.getBoundingClientRect();
+          this.popup.show({
+            type: 'aircraft',
+            data: ac,
             x: e.clientX - rect.left,
             y: e.clientY - rect.top,
           });
@@ -3594,6 +3629,11 @@ export class MapComponent {
 
   public setFlightDelays(delays: AirportDelayAlert[]): void {
     this.flightDelays = delays;
+    this.render();
+  }
+
+  public setAircraftPositions(positions: PositionSample[]): void {
+    this.aircraftPositions = positions;
     this.render();
   }
 

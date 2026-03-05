@@ -3422,7 +3422,7 @@ body.live-news-fullscreen-active .panels-grid > *:not(.live-news-fullscreen) {
   display: none;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 9999;
 }
 
 .signal-modal-overlay.active {
@@ -5906,7 +5906,7 @@ a.prediction-link:hover {
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 9999;
 }
 
 .modal-overlay.active {
@@ -8450,9 +8450,36 @@ a.prediction-link:hover {
   margin-right: 4px;
 }
 
-/* Mobile search trigger bar — hidden on desktop */
-.search-mobile-trigger {
+/* Mobile search FAB — always visible floating button */
+.search-mobile-fab {
   display: none;
+}
+
+@media (max-width: 768px) {
+  .search-mobile-fab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    right: 16px;
+    width: 56px;
+    height: 56px;
+    background: var(--accent, #4488ff);
+    border: none;
+    border-radius: 50%;
+    box-shadow: 0 4px 20px rgba(68, 136, 255, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+    color: #fff;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 500;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .search-mobile-fab:active {
+    transform: scale(0.9);
+    opacity: 0.85;
+  }
 }
 
 /* Mobile bottom sheet search */
@@ -8464,7 +8491,7 @@ a.prediction-link:hover {
 
 .search-overlay.search-mobile .search-sheet {
   width: 100%;
-  max-height: 75vh;
+  max-height: 50vh;
   background: var(--surface);
   border-radius: 16px 16px 0 0;
   display: flex;
@@ -8511,11 +8538,11 @@ a.prediction-link:hover {
   background: none;
   border: none;
   color: var(--accent, #4488ff);
-  font-size: 14px;
+  font-size: 20px;
   font-family: inherit;
   cursor: pointer;
   padding: 4px 8px;
-  white-space: nowrap;
+  line-height: 1;
 }
 
 .search-sheet-chips {
@@ -8549,35 +8576,13 @@ a.prediction-link:hover {
 }
 
 @media (max-width: 768px) {
-  .search-mobile-trigger {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    position: fixed;
-    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-    left: 16px;
-    right: 16px;
-    padding: 12px 18px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 28px;
-    box-shadow: 0 4px 20px var(--shadow-color);
-    color: var(--text-dim);
-    font-size: 14px;
-    cursor: pointer;
-    z-index: 500;
-  }
-
-  .search-mobile-trigger:active {
-    background: var(--bg);
-  }
-
   .search-btn {
     display: none !important;
   }
 
   .search-overlay.search-mobile .search-results {
-    max-height: calc(75vh - 120px);
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
@@ -8594,6 +8599,14 @@ a.prediction-link:hover {
   .search-overlay.search-mobile .search-section-header {
     font-size: 11px;
     padding: 10px 16px;
+  }
+
+  .search-overlay.search-mobile .search-result-subtitle {
+    display: none;
+  }
+
+  .search-overlay.search-mobile .search-result-type {
+    display: none;
   }
 }
 
@@ -10090,7 +10103,7 @@ a.prediction-link:hover {
   }
 
   .mobile-search-btn {
-    display: flex;
+    display: none;
   }
 
   .mobile-menu-overlay {
@@ -10228,7 +10241,6 @@ a.prediction-link:hover {
     flex-direction: column;
     gap: 8px;
     padding: 8px;
-    padding-bottom: 72px;
   }
 
   body {
@@ -13768,6 +13780,24 @@ a.prediction-link:hover {
   }
 }
 
+/* Mobile: prevent horizontal overflow from deck.gl legend */
+@media (max-width: 520px) {
+  .deckgl-legend {
+    left: 8px;
+    right: 8px;
+    transform: none;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding: 6px 10px;
+    overflow: hidden;
+  }
+
+  .deckgl-legend .legend-item {
+    max-width: 100%;
+  }
+}
+
 /* Scrollbar styling for layer toggles */
 .deckgl-layer-toggles::-webkit-scrollbar {
   width: 4px;
@@ -14660,6 +14690,45 @@ a.prediction-link:hover {
   border-radius: 50%;
   background: hsl(229, 48%, 55%);
   flex-shrink: 0;
+}
+
+/* Data management buttons in settings */
+.us-data-mgmt {
+  display: flex;
+  gap: 10px;
+  padding: 0 16px 12px;
+}
+
+.us-data-mgmt .settings-btn {
+  flex: 1;
+}
+
+.us-hidden-input {
+  display: none;
+}
+
+.us-data-mgmt-toast {
+  padding: 0 16px;
+  font-size: 12px;
+  min-height: 0;
+  transition: opacity 0.2s;
+}
+
+.us-data-mgmt-toast:empty {
+  display: none;
+}
+
+.us-data-mgmt-toast.ok {
+  color: #34d399;
+}
+
+.us-data-mgmt-toast.error {
+  color: #f87171;
+}
+
+.us-toast-reload {
+  color: #60a5fa;
+  margin-left: 6px;
 }
 
 /* Footer status */

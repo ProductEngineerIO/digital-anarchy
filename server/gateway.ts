@@ -54,6 +54,13 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/military/v1/get-theater-posture': 'slow',
   '/api/infrastructure/v1/get-temporal-baseline': 'slow',
   '/api/aviation/v1/list-airport-delays': 'static',
+  '/api/aviation/v1/get-airport-ops-summary': 'static',
+  '/api/aviation/v1/list-airport-flights': 'static',
+  '/api/aviation/v1/get-carrier-ops': 'slow',
+  '/api/aviation/v1/get-flight-status': 'fast',
+  '/api/aviation/v1/track-aircraft': 'no-store',
+  '/api/aviation/v1/search-flight-prices': 'medium',
+  '/api/aviation/v1/list-aviation-news': 'slow',
   '/api/market/v1/get-country-stock-index': 'slow',
 
   '/api/natural/v1/list-natural-events': 'slow',
@@ -210,7 +217,7 @@ export function createDomainGateway(
       }
     }
 
-    if (response.status === 200 && request.method === 'GET' && !mergedHeaders.has('Cache-Control')) {
+    if (response.status === 200 && request.method === 'GET') {
       if (mergedHeaders.get('X-No-Cache')) {
         mergedHeaders.set('Cache-Control', 'no-store');
         mergedHeaders.set('X-Cache-Tier', 'no-store');

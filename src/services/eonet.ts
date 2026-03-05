@@ -1,4 +1,5 @@
 import type { NaturalEvent, NaturalEventCategory } from '@/types';
+import { NATURAL_EVENT_CATEGORIES } from '@/types';
 import {
   NaturalServiceClient,
   type ListNaturalEventsResponse,
@@ -26,6 +27,13 @@ export function getNaturalEventIcon(category: NaturalEventCategory): string {
   return CATEGORY_ICONS[category] || '⚠️';
 }
 
+function normalizeNaturalCategory(category: string | undefined): NaturalEventCategory {
+  if (!category) return 'manmade';
+  return NATURAL_EVENT_CATEGORIES.has(category as NaturalEventCategory)
+    ? (category as NaturalEventCategory)
+    : 'manmade';
+}
+
 const client = new NaturalServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 const breaker = createCircuitBreaker<ListNaturalEventsResponse>({ name: 'NaturalEvents', cacheTtlMs: 30 * 60 * 1000, persistCache: true });
 
@@ -36,7 +44,7 @@ function toNaturalEvent(e: ListNaturalEventsResponse['events'][number]): Natural
     id: e.id,
     title: e.title,
     description: e.description || undefined,
-    category: (e.category || 'manmade') as NaturalEventCategory,
+    category: normalizeNaturalCategory(e.category),
     categoryTitle: e.categoryTitle,
     lat: e.lat,
     lon: e.lon,
@@ -51,7 +59,7 @@ function toNaturalEvent(e: ListNaturalEventsResponse['events'][number]): Natural
 
 export async function fetchNaturalEvents(_days = 30): Promise<NaturalEvent[]> {
   const hydrated = getHydratedData('naturalEvents') as ListNaturalEventsResponse | undefined;
-  const response = hydrated ?? await breaker.execute(async () => {
+  const response = (hydrated?.events?.length ? hydrated : null) ?? await breaker.execute(async () => {
     return client.listNaturalEvents({ days: 30 });
   }, emptyFallback);
 
