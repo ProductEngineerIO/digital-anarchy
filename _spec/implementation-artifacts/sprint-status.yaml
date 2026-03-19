@@ -41,13 +41,13 @@ story_location: _spec/implementation-artifacts
 
 development_status:
   # ── Prerequisite: Fork Pattern Validation Spike ──
-  epic-0: in-progress
-  0-1-fork-pattern-validation-spike: in-progress
-  epic-0-retrospective: optional
+  epic-0: done
+  0-1-fork-pattern-validation-spike: done
+  epic-0-retrospective: done
 
   # ── Epic 1: Deployment & Quality Pipeline ──
-  epic-1: backlog
-  1-1-vercel-environment-configuration-redis-key-prefix-isolation: backlog
+  epic-1: in-progress
+  1-1-vercel-environment-configuration-redis-key-prefix-isolation: ready-for-dev
   1-2-ci-pipeline-lint-test-build-proto-breaking-change-detection: backlog
   1-3-endpoint-smoke-test-script: backlog
   1-4-lighthouse-baseline-audit: backlog
@@ -78,48 +78,58 @@ development_status:
   4-5-globe-visual-baseline-empty-state-handling: backlog
   epic-4-retrospective: optional
 
-  # ── Epic 5: Accessibility & Design System Compliance ──
+  # ── Epic 5: Upstream Sync — March 2026 (PRs #809–#1851) ──
   epic-5: backlog
-  5-1-aria-announcer-debounced-aria-live-region: backlog
-  5-2-prefers-reduced-motion-blanket-rule-fork-component-aria-labels: backlog
-  5-3-responsive-mobile-support-touch-targets: backlog
-  5-4-fork-css-lint-ci-checks-playwright-a11y-tests: backlog
+  5-1-merge-branch-conflict-resolution: ready-for-dev
+  5-2-build-validation-proto-check: ready-for-dev
+  5-3-env-var-audit-configuration: ready-for-dev
+  5-4-fork-hook-branding-validation: ready-for-dev
+  5-5-e2e-smoke-test-pass: ready-for-dev
+  5-6-merge-develop-preview-deploy: ready-for-dev
   epic-5-retrospective: optional
 
-  # ── Epic 6: Upstream Sync Workflow ──
+  # ── Epic 6: Accessibility & Design System Compliance ──
   epic-6: backlog
-  6-1-upstream-sync-branch-pattern-post-merge-checklist: backlog
-  6-2-tier-2-patch-signature-assertions: backlog
-  6-3-post-sync-visual-verification-playwright-screenshots: backlog
+  6-1-aria-announcer-debounced-aria-live-region: backlog
+  6-2-prefers-reduced-motion-blanket-rule-fork-component-aria-labels: backlog
+  6-3-responsive-mobile-support-touch-targets: backlog
+  6-4-fork-css-lint-ci-checks-playwright-a11y-tests: backlog
   epic-6-retrospective: optional
 
-  # ── Epic 7: Operational Monitoring & Observability ──
+  # ── Epic 7: Upstream Sync Workflow ──
   epic-7: backlog
-  7-1-sentry-integration: backlog
-  7-2-health-indicator-per-panel-status-dots: backlog
-  7-3-operator-badge-operator-drawer-focus-trap: backlog
-  7-4-startup-compatibility-notification-bar: backlog
+  7-1-upstream-sync-branch-pattern-post-merge-checklist: backlog
+  7-2-tier-2-patch-signature-assertions: backlog
+  7-3-post-sync-visual-verification-playwright-screenshots: backlog
   epic-7-retrospective: optional
 
-  # ── Epic 8: Returning Visitor Experience (Growth) ──
+  # ── Epic 8: Operational Monitoring & Observability ──
   epic-8: backlog
-  8-1-visit-tracker-localstorage-service: backlog
-  8-2-hotspot-delta-pulsing-markers: backlog
-  8-3-what-you-missed-panel: backlog
+  8-1-sentry-integration: backlog
+  8-2-health-indicator-per-panel-status-dots: backlog
+  8-3-operator-badge-operator-drawer-focus-trap: backlog
+  8-4-startup-compatibility-notification-bar: backlog
   epic-8-retrospective: optional
 
-  # ── Epic 9: Enhanced Cross-Panel Correlation (Growth) ──
+  # ── Epic 9: Returning Visitor Experience (Growth) ──
   epic-9: backlog
-  9-1-panel-to-panel-interactive-highlighting: backlog
+  9-1-visit-tracker-localstorage-service: backlog
+  9-2-hotspot-delta-pulsing-markers: backlog
+  9-3-what-you-missed-panel: backlog
   epic-9-retrospective: optional
 
-  # ── Epic 10: Discoverability & SEO (Growth) ──
+  # ── Epic 10: Enhanced Cross-Panel Correlation (Growth) ──
   epic-10: backlog
-  10-1-sitemap-xml-json-ld-structured-data: backlog
-  10-2-ssr-landing-page: backlog
-  10-3-enhanced-story-pages-mobile-warning-softening: backlog
-  10-4-lighthouse-ci-automated-upstream-sync-detection: backlog
+  10-1-panel-to-panel-interactive-highlighting: backlog
   epic-10-retrospective: optional
+
+  # ── Epic 11: Discoverability & SEO (Growth) ──
+  epic-11: backlog
+  11-1-sitemap-xml-json-ld-structured-data: backlog
+  11-2-ssr-landing-page: backlog
+  11-3-enhanced-story-pages-mobile-warning-softening: backlog
+  11-4-lighthouse-ci-automated-upstream-sync-detection: backlog
+  epic-11-retrospective: optional
 
   # ── Backlog: Upstream Fixes & Data Source Migrations ──
   backlog-b: backlog

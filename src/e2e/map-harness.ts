@@ -136,6 +136,8 @@ app.style.position = 'relative';
 app.style.margin = '0 auto';
 
 const allLayersEnabled: MapLayers = {
+  gpsJamming: true,
+
   conflicts: true,
   bases: true,
   cables: true,
@@ -177,9 +179,14 @@ const allLayersEnabled: MapLayers = {
   speciesRecovery: false,
   renewableInstallations: false,
   tradeRoutes: true,
+  iranAttacks: false,
+  ciiChoropleth: false,
+  dayNight: true,
 };
 
 const allLayersDisabled: MapLayers = {
+  gpsJamming: false,
+
   conflicts: false,
   bases: false,
   cables: false,
@@ -221,6 +228,9 @@ const allLayersDisabled: MapLayers = {
   speciesRecovery: false,
   renewableInstallations: false,
   tradeRoutes: false,
+  iranAttacks: false,
+  ciiChoropleth: false,
+  dayNight: false,
 };
 
 const SEEDED_NEWS_LOCATIONS: Array<{

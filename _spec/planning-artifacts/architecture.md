@@ -1136,6 +1136,6 @@ Story: `0-1-fork-pattern-validation-spike`
 |---|---|---|
 | Gate 1 — Tier 2 hook works | PASS | `src/main.ts` imports `./fork/index` after `app.init()` and calls `init()` with error fallback. |
 | Gate 2 — CSS variable propagation | PASS | `src/fork/index.ts` injects `<style id="fork-theme">` with `--accent`, `--bg`, and `--surface` overrides and cascade verification. |
-| Gate 3 — Vercel Preview deployment | PENDING (build pre-check PASS) | Local `npm run build` succeeds; Preview verification (load, theme visible, CLS=0) pending branch push/deployment. |
+| Gate 3 — Vercel Preview deployment | PASS | Vercel Preview deployment confirmed 2026-02-26: site loads without errors, fork theme visible, CLS = 0. Build succeeds locally and in Preview. |
 
 Scope note: Story 0.1 validates the primary app entry point path only. Secondary entry points (`settings` / `live-channels`) are deferred to Epic 2.

@@ -52,13 +52,11 @@ describe('ACLED shared cache layer', () => {
       'Cache key should include event types, start date, end date');
   });
 
-  it('checks Redis cache before upstream API call', () => {
-    const cacheCheckIdx = src.indexOf('getCachedJson(cacheKey)');
-    const fetchIdx = src.indexOf('fetch(`${ACLED_API_URL}');
-    assert.ok(cacheCheckIdx > -1, 'Should check Redis cache');
-    assert.ok(fetchIdx > -1, 'Should call ACLED API');
-    assert.ok(cacheCheckIdx < fetchIdx,
-      'Cache check should come before upstream fetch');
+  it('uses cachedFetchJson to check Redis cache before upstream API call', () => {
+    assert.match(src, /cachedFetchJson\s*<.*>\s*\(cacheKey/,
+      'Should use cachedFetchJson which handles cache check + coalescing');
+    assert.ok(src.includes('fetch(`${ACLED_API_URL}'),
+      'Should call ACLED API inside the fetcher');
   });
 
   it('uses 15-minute cache TTL', () => {
@@ -71,9 +69,9 @@ describe('ACLED shared cache layer', () => {
       'Should gracefully degrade when ACLED_ACCESS_TOKEN is not set');
   });
 
-  it('writes to cache on successful fetch', () => {
-    assert.match(src, /setCachedJson\(cacheKey, events, ACLED_CACHE_TTL\)/,
-      'Should cache successful results');
+  it('caches successful results via cachedFetchJson', () => {
+    assert.match(src, /cachedFetchJson/,
+      'Should use cachedFetchJson which writes to cache automatically on successful fetch');
   });
 
   it('caches empty successful responses to avoid repeated cache misses', () => {
@@ -116,53 +114,35 @@ describe('ACLED consumers use shared cache layer', () => {
 // 3. Maritime AIS visibility guard
 // ========================================================================
 
-describe('maritime AIS visibility guard', () => {
+describe('maritime AIS visibility guard (SmartPollLoop)', () => {
   const src = readSrc('src/services/maritime/index.ts');
 
-  it('skips polling when document is hidden', () => {
-    assert.match(src, /document\.hidden/,
-      'Should check document.hidden');
-    // The guard should be in pollSnapshot
+  it('uses startSmartPollLoop for polling', () => {
+    assert.match(src, /startSmartPollLoop/,
+      'Should use startSmartPollLoop for AIS polling');
+  });
+
+  it('pauses entirely when hidden via pauseWhenHidden option', () => {
+    assert.match(src, /pauseWhenHidden:\s*true/,
+      'Should set pauseWhenHidden: true to stop relay traffic in background tabs');
+  });
+
+  it('refreshes on tab becoming visible', () => {
+    assert.match(src, /refreshOnVisible:\s*true/,
+      'Should set refreshOnVisible: true to fetch fresh data when tab returns');
+  });
+
+  it('passes AbortSignal through to pollSnapshot', () => {
+    // pollSnapshot should accept a signal parameter
     const pollFn = src.slice(src.indexOf('async function pollSnapshot'));
-    const hiddenGuard = pollFn.indexOf('document.hidden');
-    assert.ok(hiddenGuard > -1 && hiddenGuard < 400,
-      'document.hidden check should be near the top of pollSnapshot');
+    assert.match(pollFn, /signal\?\.aborted/,
+      'pollSnapshot should check signal.aborted');
   });
 
-  it('has pausePolling function that clears interval', () => {
-    assert.match(src, /function pausePolling\(\)/,
-      'Should define pausePolling');
-    const pauseFn = src.slice(src.indexOf('function pausePolling'), src.indexOf('function pausePolling') + 200);
-    assert.match(pauseFn, /clearInterval\(pollInterval\)/,
-      'pausePolling should clear the poll interval');
-  });
-
-  it('has resumePolling function that restarts polling without overlap', () => {
-    assert.match(src, /function resumePolling\(\)/,
-      'Should define resumePolling');
-    const resumeIdx = src.indexOf('function resumePolling');
-    const resumeFn = src.slice(resumeIdx, resumeIdx + 400);
-    assert.match(resumeFn, /if \(!inFlight\)/,
-      'resumePolling should guard against overlapping polls');
-    assert.match(resumeFn, /pollSnapshot\(false\)/,
-      'resumePolling should trigger a non-forced poll');
-  });
-
-  it('registers visibilitychange listener', () => {
-    assert.match(src, /document\.addEventListener\('visibilitychange'/,
-      'Should listen for visibilitychange events');
-  });
-
-  it('calls pausePolling on hidden and resumePolling on visible', () => {
-    const listenerBlock = src.slice(
-      src.indexOf("document.addEventListener('visibilitychange'"),
-      src.indexOf("document.addEventListener('visibilitychange'") + 300,
-    );
-    assert.match(listenerBlock, /document\.hidden/,
-      'Listener should check document.hidden');
-    assert.match(listenerBlock, /pausePolling\(\)/,
-      'Should call pausePolling when hidden');
-    assert.match(listenerBlock, /resumePolling\(\)/,
-      'Should call resumePolling when visible');
+  it('stops poll loop on disconnect', () => {
+    const disconnectIdx = src.indexOf('function disconnectAisStream');
+    const disconnectFn = src.slice(disconnectIdx, disconnectIdx + 300);
+    assert.match(disconnectFn, /pollLoop\?\.stop\(\)/,
+      'disconnectAisStream should stop the SmartPollLoop');
   });
 });

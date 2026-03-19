@@ -2,8 +2,9 @@ import { Panel } from './Panel';
 import { mlWorker } from '@/services/ml-worker';
 import { generateSummary, type SummarizeOptions } from '@/services/summarization';
 import { parallelAnalysis, type AnalyzedHeadline } from '@/services/parallel-analysis';
-import { signalAggregator, logSignalSummary, type RegionalConvergence } from '@/services/signal-aggregator';
+import { signalAggregator, type RegionalConvergence } from '@/services/signal-aggregator';
 import { focalPointDetector } from '@/services/focal-point-detector';
+import { stripOrefLabels } from '@/services/oref-alerts';
 import { ingestNewsForCII } from '@/services/country-instability';
 import { getTheaterPostureSummaries } from '@/services/military-surge';
 import { isMobileDevice } from '@/utils';
@@ -13,6 +14,7 @@ import { deletePersistentCache, getPersistentCache, setPersistentCache } from '@
 import { t } from '@/services/i18n';
 import { isDesktopRuntime } from '@/services/runtime';
 import { getAiFlowSettings, isAnyAiProviderEnabled, subscribeAiFlowChange } from '@/services/ai-flow-settings';
+import { getServerInsights, type ServerInsights, type ServerInsightStory } from '@/services/insights-loader';
 import type { ClusteredEvent, FocalPoint, MilitaryFlight } from '@/types';
 
 export class InsightsPanel extends Panel {
@@ -268,6 +270,70 @@ export class InsightsPanel extends Panel {
       return;
     }
 
+    // Try server-side pre-computed insights first (instant)
+    const serverInsights = getServerInsights();
+    if (serverInsights) {
+      await this.updateFromServer(serverInsights, clusters, thisGeneration);
+      return;
+    }
+
+    // Fallback: full client-side pipeline
+    await this.updateFromClient(clusters, thisGeneration);
+  }
+
+  private async updateFromServer(
+    serverInsights: ServerInsights,
+    clusters: ClusteredEvent[],
+    thisGeneration: number,
+  ): Promise<void> {
+    const totalSteps = 2;
+
+    try {
+      // Step 1: Signal aggregation (client-side, depends on real-time map data)
+      this.setProgress(1, totalSteps, 'Loading server insights...');
+
+      let signalSummary: ReturnType<typeof signalAggregator.getSummary>;
+      let focalSummary: ReturnType<typeof focalPointDetector.analyze>;
+
+      if (SITE_VARIANT === 'full') {
+        if (this.lastMilitaryFlights.length > 0) {
+          const postures = getTheaterPostureSummaries(this.lastMilitaryFlights);
+          signalAggregator.ingestTheaterPostures(postures);
+        }
+        signalSummary = signalAggregator.getSummary();
+        this.lastConvergenceZones = signalSummary.convergenceZones;
+        focalSummary = focalPointDetector.analyze(clusters, signalSummary);
+        this.lastFocalPoints = focalSummary.focalPoints;
+        if (focalSummary.focalPoints.length > 0) {
+          ingestNewsForCII(clusters);
+          window.dispatchEvent(new CustomEvent('focal-points-ready'));
+        }
+      } else {
+        this.lastConvergenceZones = [];
+        this.lastFocalPoints = [];
+      }
+
+      if (this.updateGeneration !== thisGeneration) return;
+
+      // Step 2: Sentiment analysis on server story titles (fast browser ML)
+      this.setProgress(2, totalSteps, t('components.insights.analyzingSentiment'));
+      const titles = serverInsights.topStories.slice(0, 5).map(s => s.primaryTitle);
+      let sentiments: Array<{ label: string; score: number }> | null = null;
+      if (mlWorker.isAvailable) {
+        sentiments = await mlWorker.classifySentiment(titles).catch(() => null);
+      }
+
+      if (this.updateGeneration !== thisGeneration) return;
+
+      this.setDataBadge(serverInsights.status === 'ok' ? 'live' : 'cached');
+      this.renderServerInsights(serverInsights, sentiments);
+    } catch (error) {
+      console.error('[InsightsPanel] Server path error, falling back:', error);
+      await this.updateFromClient(clusters, thisGeneration);
+    }
+  }
+
+  private async updateFromClient(clusters: ClusteredEvent[], thisGeneration: number): Promise<void> {
     // Web-only: if no AI providers enabled, show disabled state
     if (!isDesktopRuntime() && !isAnyAiProviderEnabled()) {
       this.setDataBadge('unavailable');
@@ -290,15 +356,10 @@ export class InsightsPanel extends Panel {
 
       const importantClusters = this.selectTopStories(clusters, 8);
 
-      // Run parallel multi-perspective analysis in background (logs to console)
+      // Run parallel multi-perspective analysis in background
       // This analyzes ALL clusters, not just the keyword-filtered ones
       const parallelPromise = parallelAnalysis.analyzeHeadlines(clusters).then(report => {
         this.lastMissedStories = report.missedByKeywords;
-        const suggestions = parallelAnalysis.getSuggestedImprovements();
-        if (suggestions.length > 0) {
-          console.log('%c💡 Improvement Suggestions:', 'color: #f59e0b; font-weight: bold');
-          suggestions.forEach(s => console.log(`  • ${s}`));
-        }
       }).catch(err => {
         console.warn('[ParallelAnalysis] Error:', err);
       });
@@ -309,17 +370,19 @@ export class InsightsPanel extends Panel {
       let focalSummary: ReturnType<typeof focalPointDetector.analyze>;
 
       if (SITE_VARIANT === 'full') {
+        // Feed theater-level posture into signal aggregator so target nations
+        // (Iran, Taiwan, etc.) get credited for military activity in their theater,
+        // even when aircraft/vessels are physically over neighboring airspace/waters.
+        if (this.lastMilitaryFlights.length > 0) {
+          const postures = getTheaterPostureSummaries(this.lastMilitaryFlights);
+          signalAggregator.ingestTheaterPostures(postures);
+        }
         signalSummary = signalAggregator.getSummary();
         this.lastConvergenceZones = signalSummary.convergenceZones;
-        if (signalSummary.totalSignals > 0) {
-          logSignalSummary();
-        }
-
         // Run focal point detection (correlates news entities with map signals)
         focalSummary = focalPointDetector.analyze(clusters, signalSummary);
         this.lastFocalPoints = focalSummary.focalPoints;
         if (focalSummary.focalPoints.length > 0) {
-          focalPointDetector.logSummary();
           // Ingest news for CII BEFORE signaling (so CII has data when it calculates)
           ingestNewsForCII(clusters);
           // Signal CII to refresh now that focal points AND news data are available
@@ -352,7 +415,8 @@ export class InsightsPanel extends Panel {
       }
 
       // Cap titles sent to AI at 5 to reduce entity conflation in small models
-      const titles = importantClusters.slice(0, 5).map(c => c.primaryTitle);
+      // Strip OREF translation labels (ALERT[id]:, AREAS[id]:) that may leak into cluster titles
+      const titles = importantClusters.slice(0, 5).map(c => stripOrefLabels(c.primaryTitle));
 
       // Step 2: Analyze sentiment (browser-based, fast)
       this.setProgress(2, totalSteps, t('components.insights.analyzingSentiment'));
@@ -393,7 +457,6 @@ export class InsightsPanel extends Panel {
           this.lastBriefUpdate = now;
           usedCachedBrief = false;
           void setPersistentCache(InsightsPanel.BRIEF_CACHE_KEY, { summary: worldBrief });
-          console.log(`[InsightsPanel] Brief generated${result.cached ? ' (cached)' : ''}${geoContext ? ' (with geo context)' : ''}`);
         }
       } else {
         usedCachedBrief = true;
@@ -440,6 +503,90 @@ export class InsightsPanel extends Panel {
       </div>
       ${missedHtml}
     `);
+  }
+
+  private renderServerInsights(
+    insights: ServerInsights,
+    sentiments: Array<{ label: string; score: number }> | null,
+  ): void {
+    const briefHtml = insights.worldBrief ? this.renderWorldBrief(insights.worldBrief) : '';
+    const focalPointsHtml = this.renderFocalPoints();
+    const convergenceHtml = this.renderConvergenceZones();
+    const sentimentOverview = this.renderSentimentOverview(sentiments);
+    const storiesHtml = this.renderServerStories(insights.topStories, sentiments);
+    const statsHtml = this.renderServerStats(insights);
+    const missedHtml = this.renderMissedStories();
+
+    this.setContent(`
+      ${briefHtml}
+      ${focalPointsHtml}
+      ${convergenceHtml}
+      ${sentimentOverview}
+      ${statsHtml}
+      <div class="insights-section">
+        <div class="insights-section-title">BREAKING & CONFIRMED</div>
+        ${storiesHtml}
+      </div>
+      ${missedHtml}
+    `);
+  }
+
+  private renderServerStories(
+    stories: ServerInsightStory[],
+    sentiments: Array<{ label: string; score: number }> | null,
+  ): string {
+    return stories.map((story, i) => {
+      const sentiment = sentiments?.[i];
+      const sentimentClass = sentiment?.label === 'negative' ? 'negative' :
+        sentiment?.label === 'positive' ? 'positive' : 'neutral';
+
+      const badges: string[] = [];
+
+      if (story.sourceCount >= 3) {
+        badges.push(`<span class="insight-badge confirmed">✓ ${story.sourceCount} sources</span>`);
+      } else if (story.sourceCount >= 2) {
+        badges.push(`<span class="insight-badge multi">${story.sourceCount} sources</span>`);
+      }
+
+      if (story.isAlert) {
+        badges.push('<span class="insight-badge alert">⚠ ALERT</span>');
+      }
+
+      const VALID_THREAT_LEVELS = ['critical', 'high', 'elevated', 'moderate'];
+      if (story.threatLevel === 'critical' || story.threatLevel === 'high') {
+        const safeThreat = VALID_THREAT_LEVELS.includes(story.threatLevel) ? story.threatLevel : 'moderate';
+        badges.push(`<span class="insight-badge velocity ${safeThreat}">${escapeHtml(story.category)}</span>`);
+      }
+
+      return `
+        <div class="insight-story">
+          <div class="insight-story-header">
+            <span class="insight-sentiment-dot ${sentimentClass}"></span>
+            <span class="insight-story-title">${escapeHtml(story.primaryTitle.slice(0, 100))}${story.primaryTitle.length > 100 ? '...' : ''}</span>
+          </div>
+          ${badges.length > 0 ? `<div class="insight-badges">${badges.join('')}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  private renderServerStats(insights: ServerInsights): string {
+    return `
+      <div class="insights-stats">
+        <div class="insight-stat">
+          <span class="insight-stat-value">${insights.multiSourceCount}</span>
+          <span class="insight-stat-label">Multi-source</span>
+        </div>
+        <div class="insight-stat">
+          <span class="insight-stat-value">${insights.fastMovingCount}</span>
+          <span class="insight-stat-label">Fast-moving</span>
+        </div>
+        <div class="insight-stat">
+          <span class="insight-stat-value">${insights.clusterCount}</span>
+          <span class="insight-stat-label">Clusters</span>
+        </div>
+      </div>
+    `;
   }
 
   private renderWorldBrief(brief: string): string {
@@ -623,9 +770,10 @@ export class InsightsPanel extends Panel {
   }
 
   private renderFocalPoints(): string {
-    // Only show focal points that have both news AND signals (true correlations)
+    // Show focal points with news+signals correlations, or those with active strikes
     const correlatedFPs = this.lastFocalPoints.filter(
-      fp => fp.newsMentions > 0 && fp.signalCount > 0
+      fp => (fp.newsMentions > 0 && fp.signalCount > 0) ||
+            fp.signalTypes.includes('active_strike')
     ).slice(0, 5);
 
     if (correlatedFPs.length === 0) {
@@ -638,6 +786,7 @@ export class InsightsPanel extends Panel {
       military_vessel: '⚓',
       protest: '📢',
       ais_disruption: '🚢',
+      active_strike: '💥',
     };
 
     const focalPointsHtml = correlatedFPs.map(fp => {
@@ -690,6 +839,7 @@ export class InsightsPanel extends Panel {
     } catch {
       // Best effort; fallback regeneration still works from memory reset.
     }
+    if (!this.element?.isConnected) return;
 
     if (!isAnyAiProviderEnabled()) {
       this.setDataBadge('unavailable');

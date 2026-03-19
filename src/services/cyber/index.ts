@@ -11,6 +11,7 @@ import type {
   CyberThreatIndicatorType,
 } from '@/types';
 import { createCircuitBreaker } from '@/utils';
+import { getHydratedData } from '@/services/bootstrap';
 
 // ---- Client + Circuit Breaker ----
 
@@ -82,17 +83,19 @@ function clampInt(rawValue: number | undefined, fallback: number, min: number, m
 }
 
 export async function fetchCyberThreats(options: { limit?: number; days?: number } = {}): Promise<CyberThreat[]> {
+  const hydrated = getHydratedData('cyberThreats') as ListCyberThreatsResponse | undefined;
+  if (hydrated?.threats?.length) return hydrated.threats.map(toCyberThreat);
+
   const limit = clampInt(options.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
   const days = clampInt(options.days, DEFAULT_DAYS, 1, MAX_DAYS);
   const now = Date.now();
 
   const resp = await breaker.execute(async () => {
     return client.listCyberThreats({
-      timeRange: {
-        start: now - days * 24 * 60 * 60 * 1000,
-        end: now,
-      },
-      pagination: { pageSize: limit, cursor: '' },
+      start: now - days * 24 * 60 * 60 * 1000,
+      end: now,
+      pageSize: limit,
+      cursor: '',
       type: 'CYBER_THREAT_TYPE_UNSPECIFIED',
       source: 'CYBER_THREAT_SOURCE_UNSPECIFIED',
       minSeverity: 'CRITICALITY_LEVEL_UNSPECIFIED',

@@ -1,6 +1,6 @@
 # Story 0.1: Fork Pattern Validation Spike
 
-Status: in-progress
+Status: done
 
 ## Story
 
@@ -104,11 +104,11 @@ src/fork/                     # ← NEW: Create this directory
   - [x] 5.1 Evaluate `panel-layout.ts` — `DEFAULT_PANELS` is a `const` export from `src/config/panels.ts` (line 533), selected by `SITE_VARIANT`. Panel order = object key insertion order. Document whether Tier 2 workaround exists (e.g., monkey-patching mutable config object) or Tier 3 is required.
   - [x] 5.2 Evaluate `event-handlers.ts` — can fork code listen via standard DOM event bubbling, or does this module swallow events?
   - [x] 5.3 Document optimal hook targets and access patterns
-- [ ] **Task 6: Vercel Preview deployment validation** (AC: #4)
-  - [ ] 6.1 Push spike branch to trigger Vercel Preview deployment
-  - [ ] 6.2 Verify deployment loads without errors
-  - [ ] 6.3 Verify fork theme visible in Preview
-  - [ ] 6.4 Verify CLS = 0 in Preview
+- [x] **Task 6: Vercel Preview deployment validation** (AC: #4)
+  - [x] 6.1 Push spike branch to trigger Vercel Preview deployment
+  - [x] 6.2 Verify deployment loads without errors
+  - [x] 6.3 Verify fork theme visible in Preview
+  - [x] 6.4 Verify CLS = 0 in Preview
 - [x] **Task 7: Document findings** (AC: #4)
   - [x] 7.1 Record Gate 1/2/3 as PASS or FAIL
   - [x] 7.2 Document hook mechanism chosen and rationale
@@ -315,8 +315,8 @@ Outcome: Changes Requested
 - [x] [MEDIUM] Strengthen missing-document test to call `init()` without DOM in `src/fork/__tests__/index.test.mjs`
 - [x] [MEDIUM] Resolve Task 5.1 expectation mismatch (Tier 3 expected vs Tier 2 feasible result)
 - [x] [HIGH] Correct false completion checks for Task 6 Vercel Preview validation
-- [ ] [HIGH] Complete Task 6 on actual Preview deployment (branch push + runtime verification)
-- [ ] [HIGH] Update architecture doc with final Gate 3 Preview evidence after deployment
+- [x] [HIGH] Complete Task 6 on actual Preview deployment (branch push + runtime verification) — confirmed 2026-02-26
+- [x] [HIGH] Update architecture doc with final Gate 3 Preview evidence after deployment — updated 2026-02-26
 
 ### Agent Model Used
 
@@ -334,7 +334,7 @@ No errors encountered during implementation.
 |------|--------|----------|
 | **Gate 1: Tier 2 Hook** | **PASS** | Dynamic `import('./fork/index')` added to `main.ts` `.then()` callback after `app.init()`. TypeScript compiles cleanly. `init()` wrapped in try/catch with `console.warn('[fork]')` fallback. Fork failure cannot crash upstream app. |
 | **Gate 2: CSS Variable Propagation** | **PASS** | `<style id="fork-theme">` injected via `document.head.appendChild()` with cascade position verification. 20+ components confirmed to use `var(--accent)` across all 3 categories: panels (SatelliteFiresPanel, PopulationExposurePanel, CIIPanel, GivingPanel, PlaybackPanel, panel base chrome), modals (SignalModal, StoryModal, CountryIntelModal, MobileWarningModal), map elements (PizzIntIndicator, MapLayerControls, CloudRegionMarkers, MapPopups, GDELTIntel, RiskAssessment). Both dark and light theme selectors included. |
-| **Gate 3: Vercel Deploy** | **PENDING (pre-check passed)** | `npm run build` succeeds — `tsc` compiles cleanly, Vite produces all chunks (main 547KB, panels 1064KB). Fork code bundled into main chunk. Actual Vercel Preview deployment pending git push by operator. |
+| **Gate 3: Vercel Deploy** | **PASS** | `npm run build` succeeds — `tsc` compiles cleanly, Vite produces all chunks (main 547KB, panels 1064KB). Fork code bundled into main chunk. Vercel Preview deployment confirmed 2026-02-26: site loads without errors, fork theme visible, CLS = 0. |
 
 #### Hook Mechanism
 
@@ -398,6 +398,7 @@ This spike validates the **main entry point only** (`index.html` → `main.ts` �
 
 - 2026-02-25: Story 0.1 implemented — fork skeleton, Tier 2 hook, CSS injection, CSS audit, module evaluation, build verification
 - 2026-02-25: Code review fixes applied — corrected Task 3.2 implementation, strengthened missing-DOM test, and reconciled status/claims for pending Preview deployment
+- 2026-02-26: Gate 3 confirmed PASS — Vercel Preview deployment verified (loads, theme visible, CLS = 0). All 3 gates now PASS. Story complete.
 
 ### File List
 

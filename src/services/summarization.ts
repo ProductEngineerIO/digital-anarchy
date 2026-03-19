@@ -12,8 +12,10 @@ import { SITE_VARIANT } from '@/config';
 import { BETA_MODE } from '@/config/beta';
 import { isFeatureAvailable, type RuntimeFeatureId } from './runtime-config';
 import { trackLLMUsage, trackLLMFailure } from './analytics';
+import { getCurrentLanguage } from './i18n';
 import { NewsServiceClient, type SummarizeArticleResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import { createCircuitBreaker } from '@/utils';
+import { buildSummaryCacheKey } from '@/utils/summary-cache-key';
 
 export type SummarizationProvider = 'ollama' | 'groq' | 'openrouter' | 'browser' | 'cache';
 
@@ -36,7 +38,7 @@ export interface SummarizeOptions {
 const newsClient = new NewsServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 const summaryBreaker = createCircuitBreaker<SummarizeArticleResponse>({ name: 'News Summarization', cacheTtlMs: 0 });
 
-const emptySummaryFallback: SummarizeArticleResponse = { summary: '', provider: '', model: '', cached: false, skipped: false, fallback: true, tokens: 0, reason: '', error: '', errorType: '' };
+const emptySummaryFallback: SummarizeArticleResponse = { summary: '', provider: '', model: '', fallback: true, tokens: 0, error: '', errorType: '', status: 'SUMMARIZE_STATUS_UNSPECIFIED', statusDetail: '' };
 
 // ── Provider definitions ──
 
@@ -77,14 +79,13 @@ async function tryApiProvider(
     }, emptySummaryFallback);
 
     // Provider skipped (credentials missing) or signaled fallback
-    if (resp.skipped || resp.fallback) return null;
+    if (resp.status === 'SUMMARIZE_STATUS_SKIPPED' || resp.fallback) return null;
 
     const summary = typeof resp.summary === 'string' ? resp.summary.trim() : '';
     if (!summary) return null;
 
-    const cached = Boolean(resp.cached);
+    const cached = resp.status === 'SUMMARIZE_STATUS_CACHED';
     const resultProvider = cached ? 'cache' : providerDef.provider;
-    console.log(`[Summarization] ${cached ? 'Redis cache hit' : `${providerDef.label} success`}:`, resp.model);
     return {
       summary,
       provider: resultProvider as SummarizationProvider,
@@ -102,21 +103,22 @@ async function tryApiProvider(
 async function tryBrowserT5(headlines: string[], modelId?: string): Promise<SummarizationResult | null> {
   try {
     if (!mlWorker.isAvailable) {
-      console.log('[Summarization] Browser ML not available');
       return null;
     }
     lastAttemptedProvider = 'browser';
 
+    const lang = getCurrentLanguage();
     const combinedText = headlines.slice(0, 5).map(h => h.slice(0, 80)).join('. ');
-    const prompt = `Summarize the main themes from these news headlines in 2 sentences: ${combinedText}`;
+    const prompt = lang === 'fr'
+      ? `Résumez le titre le plus important en 2 phrases concises (moins de 60 mots) : ${combinedText}`
+      : `Summarize the most important headline in 2 concise sentences (under 60 words): ${combinedText}`;
 
     const [summary] = await mlWorker.summarize([prompt], modelId);
 
-    if (!summary || summary.length < 20 || summary.toLowerCase().includes('summarize')) {
+    if (!summary || summary.length < 20 || summary.toLowerCase().includes('summarize') || summary.toLowerCase().includes('résumez')) {
       return null;
     }
 
-    console.log('[Summarization] Browser T5 success');
     return {
       summary,
       provider: 'browser',
@@ -185,6 +187,16 @@ async function generateSummaryInternal(
   lang: string,
   options?: SummarizeOptions,
 ): Promise<SummarizationResult | null> {
+  if (!options?.skipCloudProviders) {
+    try {
+      const cacheKey = buildSummaryCacheKey(headlines, 'brief', geoContext, SITE_VARIANT, lang);
+      const cached = await newsClient.getSummarizeArticleCache({ cacheKey });
+      if (cached.summary) {
+        return { summary: cached.summary, provider: 'cache', model: cached.model || '', cached: true };
+      }
+    } catch { /* cache lookup failed — proceed to provider chain */ }
+  }
+
   if (BETA_MODE) {
     const modelReady = mlWorker.isAvailable && mlWorker.isModelLoaded('summarization-beta');
 
@@ -195,11 +207,8 @@ async function generateSummaryInternal(
         onProgress?.(1, totalSteps, 'Running local AI model (beta)...');
         const browserResult = await tryBrowserT5(headlines, 'summarization-beta');
         if (browserResult) {
-          console.log('[BETA] Browser T5-small:', browserResult.summary);
           const groqProvider = API_PROVIDERS.find(p => p.provider === 'groq');
-          if (groqProvider && !options?.skipCloudProviders) tryApiProvider(groqProvider, headlines, geoContext).then(r => {
-            if (r) console.log('[BETA] Groq comparison:', r.summary);
-          }).catch(() => {});
+          if (groqProvider && !options?.skipCloudProviders) tryApiProvider(groqProvider, headlines, geoContext).catch(() => {});
 
           return browserResult;
         }
@@ -212,7 +221,6 @@ async function generateSummaryInternal(
       }
     } else {
       const totalSteps = API_PROVIDERS.length + 2;
-      console.log('[BETA] T5-small not loaded yet, using cloud providers first');
       if (mlWorker.isAvailable && !options?.skipBrowserFallback) {
         mlWorker.loadModel('summarization-beta').catch(() => {});
       }
@@ -221,7 +229,6 @@ async function generateSummaryInternal(
       if (!options?.skipCloudProviders) {
         const chainResult = await runApiChain(API_PROVIDERS, headlines, geoContext, undefined, onProgress, 1, totalSteps);
         if (chainResult) {
-          if (chainResult.provider === 'groq') console.log('[BETA] Groq:', chainResult.summary);
           return chainResult;
         }
       }
@@ -289,7 +296,7 @@ export async function translateText(
         });
       }, emptySummaryFallback);
 
-      if (resp.fallback || resp.skipped) continue;
+      if (resp.fallback || resp.status === 'SUMMARIZE_STATUS_SKIPPED') continue;
       const summary = typeof resp.summary === 'string' ? resp.summary.trim() : '';
       if (summary) return summary;
     } catch (e) {

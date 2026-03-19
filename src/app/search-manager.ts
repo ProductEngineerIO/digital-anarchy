@@ -9,6 +9,7 @@ import { SITE_VARIANT, STORAGE_KEYS } from '@/config';
 import { LAYER_PRESETS, LAYER_KEY_MAP } from '@/config/commands';
 import { calculateCII, TIER1_COUNTRIES } from '@/services/country-instability';
 import { CURATED_COUNTRIES } from '@/config/countries';
+import { getCountryBbox } from '@/services/country-geometry';
 import { INTEL_HOTSPOTS, CONFLICT_ZONES, MILITARY_BASES, UNDERSEA_CABLES, NUCLEAR_FACILITIES } from '@/config/geo';
 import { PIPELINES } from '@/config/pipelines';
 import { AI_DATA_CENTERS } from '@/config/ai-datacenters';
@@ -50,24 +51,12 @@ export class SearchManager implements AppModule {
 
   private setupSearchModal(): void {
     const searchOptions = SITE_VARIANT === 'tech'
-      ? {
-        placeholder: t('modals.search.placeholderTech'),
-        hint: t('modals.search.hintTech'),
-      }
+      ? { placeholder: t('modals.search.placeholderTech') }
       : SITE_VARIANT === 'happy'
-        ? {
-          placeholder: 'Search or type a command...',
-          hint: 'Good News • Countries • Navigation • Settings',
-        }
+        ? { placeholder: 'Search or type a command...' }
         : SITE_VARIANT === 'finance'
-          ? {
-            placeholder: t('modals.search.placeholderFinance'),
-            hint: t('modals.search.hintFinance'),
-          }
-          : {
-            placeholder: t('modals.search.placeholder'),
-            hint: t('modals.search.hint'),
-          };
+          ? { placeholder: t('modals.search.placeholderFinance') }
+          : { placeholder: t('modals.search.placeholder') };
     this.ctx.searchModal = new SearchModal(this.ctx.container, searchOptions);
 
     if (SITE_VARIANT === 'happy') {
@@ -479,6 +468,20 @@ export class SearchManager implements AppModule {
         this.callbacks.openCountryBriefByCode(action, name);
         break;
       }
+
+      case 'country-map': {
+        const bbox = getCountryBbox(action);
+        if (bbox) {
+          const [minLon, minLat, maxLon, maxLat] = bbox;
+          const lat = (minLat + maxLat) / 2;
+          const lon = (minLon + maxLon) / 2;
+          const span = Math.max(maxLat - minLat, maxLon - minLon);
+          const zoom = span > 40 ? 3 : span > 15 ? 4 : span > 5 ? 5 : 6;
+          this.ctx.map?.setView('global');
+          setTimeout(() => { this.ctx.map?.setCenter(lat, lon, zoom); }, 300);
+        }
+        break;
+      }
     }
   }
 
@@ -493,7 +496,7 @@ export class SearchManager implements AppModule {
 
   private highlightNewsItem(itemId: string): void {
     setTimeout(() => {
-      const item = document.querySelector(`[data-news-id="${itemId}"]`);
+      const item = document.querySelector(`[data-news-id="${CSS.escape(itemId)}"]`);
       if (item) {
         item.scrollIntoView({ behavior: 'smooth', block: 'center' });
         item.classList.add('flash-highlight');

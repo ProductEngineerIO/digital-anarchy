@@ -1,3 +1,9 @@
+export interface DeductContextDetail {
+  query?: string;
+  geoContext: string;
+  autoSubmit?: boolean;
+}
+
 export type PropagandaRisk = 'low' | 'medium' | 'high';
 
 export interface Feed {
@@ -240,6 +246,7 @@ export interface ConflictZone {
   keyDevelopments?: string[];
 }
 
+
 // UCDP Georeferenced Events
 export type UcdpEventType = 'state-based' | 'non-state' | 'one-sided';
 
@@ -302,6 +309,16 @@ export interface MilitaryBase {
   arm?: string;               // Armed forces branch (Navy, Air Force, Army, etc.)
   status?: 'active' | 'planned' | 'controversial' | 'closed';
   source?: string;            // Reference URL
+}
+
+export interface MilitaryBaseEnriched extends MilitaryBase {
+  kind?: string;
+  tier?: number;
+  catAirforce?: boolean;
+  catNaval?: boolean;
+  catNuclear?: boolean;
+  catSpace?: boolean;
+  catTraining?: boolean;
 }
 
 export interface CableLandingPoint {
@@ -531,6 +548,15 @@ export interface MapLayers {
   renewableInstallations: boolean;
   // Trade route layers
   tradeRoutes: boolean;
+  // Iran attacks layer
+  iranAttacks: boolean;
+  // GPS/GNSS interference layer
+  gpsJamming: boolean;
+
+  // CII choropleth layer
+  ciiChoropleth: boolean;
+  // Overlay layers
+  dayNight: boolean;
 }
 
 export interface AIDataCenter {
@@ -915,6 +941,11 @@ export type NaturalEventCategory =
   | 'waterColor'
   | 'manmade';
 
+export const NATURAL_EVENT_CATEGORIES: ReadonlySet<NaturalEventCategory> = new Set<NaturalEventCategory>([
+  'severeStorms', 'wildfires', 'volcanoes', 'earthquakes', 'floods', 'landslides',
+  'drought', 'dustHaze', 'snow', 'tempExtremes', 'seaLakeIce', 'waterColor', 'manmade',
+]);
+
 export interface NaturalEvent {
   id: string;
   title: string;
@@ -1227,6 +1258,7 @@ export interface GulfInvestment {
 
 export interface MapProtestCluster {
   id: string;
+  _clusterId?: number;
   lat: number;
   lon: number;
   count: number;
@@ -1244,6 +1276,7 @@ export interface MapProtestCluster {
 
 export interface MapTechHQCluster {
   id: string;
+  _clusterId?: number;
   lat: number;
   lon: number;
   count: number;
@@ -1259,6 +1292,7 @@ export interface MapTechHQCluster {
 
 export interface MapTechEventCluster {
   id: string;
+  _clusterId?: number;
   lat: number;
   lon: number;
   count: number;
@@ -1272,6 +1306,7 @@ export interface MapTechEventCluster {
 
 export interface MapDatacenterCluster {
   id: string;
+  _clusterId?: number;
   lat: number;
   lon: number;
   count: number;

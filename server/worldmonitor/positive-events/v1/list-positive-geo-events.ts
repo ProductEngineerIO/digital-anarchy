@@ -1,114 +1,33 @@
-/**
- * ListPositiveGeoEvents RPC -- fetches geocoded positive news events
- * from GDELT GEO API using positive topic queries.
- */
-
 import type {
   ServerContext,
   ListPositiveGeoEventsRequest,
   ListPositiveGeoEventsResponse,
   PositiveGeoEvent,
 } from '../../../../src/generated/server/worldmonitor/positive_events/v1/service_server';
+import { getCachedJson } from '../../../_shared/redis';
 
-import { classifyNewsItem } from '../../../../src/services/positive-classifier';
+const CACHE_KEY = 'positive-events:geo:v1';
+/** Bootstrap snapshot key for pre-aggregated positive geo events */
+export const BOOTSTRAP_CACHE_KEY = 'positive-events:geo-bootstrap:v1';
+const MAX_AGE_MS = 25 * 60 * 60 * 1000;
 
-const GDELT_GEO_URL = 'https://api.gdeltproject.org/api/v2/geo/geo';
-
-// Compound positive queries combining topics from POSITIVE_GDELT_TOPICS pattern
-const POSITIVE_QUERIES = [
-  '(breakthrough OR discovery OR "renewable energy")',
-  '(conservation OR "poverty decline" OR "humanitarian aid")',
-  '("good news" OR volunteer OR donation OR charity)',
-];
-
-async function fetchGdeltGeoPositive(query: string): Promise<PositiveGeoEvent[]> {
-  const params = new URLSearchParams({
-    query,
-    format: 'geojson',
-    timespan: '24h',
-    maxrecords: '75',
-  });
-
-  const response = await fetch(`${GDELT_GEO_URL}?${params}`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(10000),
-  });
-
-  if (!response.ok) return [];
-
-  const data = await response.json();
-  const features: unknown[] = data?.features || [];
-  const seenLocations = new Set<string>();
-  const events: PositiveGeoEvent[] = [];
-
-  for (const feature of features as any[]) {
-    const name: string = feature.properties?.name || '';
-    if (!name || seenLocations.has(name)) continue;
-    // GDELT returns error messages as fake features — skip them
-    if (name.startsWith('ERROR:') || name.includes('unknown error')) continue;
-
-    const count: number = feature.properties?.count || 1;
-    if (count < 3) continue; // Noise filter
-
-    const coords = feature.geometry?.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) continue;
-
-    const [lon, lat] = coords; // GeoJSON order: [lon, lat]
-    if (
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lon) ||
-      lat < -90 ||
-      lat > 90 ||
-      lon < -180 ||
-      lon > 180
-    ) continue;
-
-    seenLocations.add(name);
-
-    const category = classifyNewsItem('GDELT', name);
-
-    events.push({
-      latitude: lat,
-      longitude: lon,
-      name,
-      category,
-      count,
-      timestamp: Date.now(),
-    });
-  }
-
-  return events;
-}
+let fallback: { events: PositiveGeoEvent[]; ts: number } | null = null;
 
 export async function listPositiveGeoEvents(
   _ctx: ServerContext,
   _req: ListPositiveGeoEventsRequest,
 ): Promise<ListPositiveGeoEventsResponse> {
   try {
-    const allEvents: PositiveGeoEvent[] = [];
-    const seenNames = new Set<string>();
-
-    for (let i = 0; i < POSITIVE_QUERIES.length; i++) {
-      if (i > 0) {
-        // Rate-limit delay between queries
-        await new Promise(r => setTimeout(r, 500));
-      }
-
-      try {
-        const events = await fetchGdeltGeoPositive(POSITIVE_QUERIES[i]);
-        for (const event of events) {
-          if (!seenNames.has(event.name)) {
-            seenNames.add(event.name);
-            allEvents.push(event);
-          }
-        }
-      } catch {
-        // Individual query failure is non-fatal
-      }
+    const raw = await getCachedJson(CACHE_KEY, true) as { events?: PositiveGeoEvent[]; fetchedAt?: number } | null;
+    if (raw?.events?.length && (!raw.fetchedAt || (Date.now() - raw.fetchedAt) < MAX_AGE_MS)) {
+      fallback = { events: raw.events, ts: Date.now() };
+      return { events: raw.events };
     }
+  } catch { /* fall through */ }
 
-    return { events: allEvents };
-  } catch {
-    return { events: [] };
+  if (fallback && (Date.now() - fallback.ts) < 12 * 60 * 60 * 1000) {
+    return { events: fallback.events };
   }
+
+  return { events: [] };
 }

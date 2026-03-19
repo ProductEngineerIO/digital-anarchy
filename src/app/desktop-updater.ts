@@ -67,7 +67,9 @@ export class DesktopUpdater implements AppModule {
 
   private async checkForUpdate(): Promise<void> {
     try {
-      const res = await fetch('https://worldmonitor.app/api/version');
+      const res = await fetch('https://worldmonitor.app/api/version', {
+        signal: AbortSignal.timeout(8000),
+      });
       if (!res.ok) {
         this.logUpdaterOutcome('fetch_failed', { status: res.status });
         return;
@@ -124,12 +126,18 @@ export class DesktopUpdater implements AppModule {
       .replace('arm64', 'aarch64');
 
     if (normalizedOs === 'windows') {
-      return normalizedArch === 'x86_64' ? 'windows-exe' : null;
+      return normalizedArch === 'x86_64' ? 'windows-msi' : null;
     }
 
     if (normalizedOs === 'macos' || normalizedOs === 'darwin') {
       if (normalizedArch === 'aarch64') return 'macos-arm64';
       if (normalizedArch === 'x86_64') return 'macos-x64';
+      return null;
+    }
+
+    if (normalizedOs === 'linux') {
+      if (normalizedArch === 'x86_64') return 'linux-appimage';
+      if (normalizedArch === 'aarch64') return 'linux-appimage-arm64';
       return null;
     }
 
@@ -176,6 +184,12 @@ export class DesktopUpdater implements AppModule {
       <button class="update-toast-dismiss" data-action="dismiss" aria-label="Dismiss">\u00d7</button>
     `;
 
+    const dismissToast = () => {
+      localStorage.setItem(`wm-update-dismissed-${version}`, '1');
+      toast.classList.remove('visible');
+      setTimeout(() => toast.remove(), 300);
+    };
+
     toast.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
       const action = target.closest<HTMLElement>('[data-action]')?.dataset.action;
@@ -189,11 +203,10 @@ export class DesktopUpdater implements AppModule {
         } else {
           window.open(url, '_blank', 'noopener');
         }
+        dismissToast();
       } else if (action === 'dismiss') {
         trackUpdateDismissed(version);
-        localStorage.setItem(`wm-update-dismissed-${version}`, '1');
-        toast.classList.remove('visible');
-        setTimeout(() => toast.remove(), 300);
+        dismissToast();
       }
     });
 

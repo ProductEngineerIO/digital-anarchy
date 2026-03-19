@@ -125,7 +125,8 @@ export function getIntelTopics(): IntelTopic[] {
 // ---- Sebuf client ----
 
 const client = new IntelligenceServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const gdeltBreaker = createCircuitBreaker<SearchGdeltDocumentsResponse>({ name: 'GDELT Intelligence', cacheTtlMs: 5 * 60 * 1000, persistCache: true });
+const gdeltBreaker = createCircuitBreaker<SearchGdeltDocumentsResponse>({ name: 'GDELT Intelligence', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
+const positiveGdeltBreaker = createCircuitBreaker<SearchGdeltDocumentsResponse>({ name: 'GDELT Positive', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 
 const emptyGdeltFallback: SearchGdeltDocumentsResponse = { articles: [], query: '', error: '' };
 
@@ -250,7 +251,7 @@ export async function fetchPositiveGdeltArticles(
     return cached.articles;
   }
 
-  const resp = await gdeltBreaker.execute(async () => {
+  const resp = await positiveGdeltBreaker.execute(async () => {
     return client.searchGdeltDocuments({
       query,
       maxRecords: maxrecords,

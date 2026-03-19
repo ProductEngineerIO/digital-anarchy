@@ -51,6 +51,7 @@ export class CircuitBreaker<T> {
   private persistentLoaded = false;
   private persistentLoadPromise: Promise<void> | null = null;
   private lastDataState: BreakerDataState = { mode: 'unavailable', timestamp: null, offline: false };
+  private backgroundRefreshPromise: Promise<void> | null = null;
 
   constructor(options: CircuitBreakerOptions) {
     this.name = options.name;
@@ -168,6 +169,7 @@ export class CircuitBreaker<T> {
 
   clearCache(): void {
     this.cache = null;
+    this.backgroundRefreshPromise = null;
     this.persistentLoadPromise = null; // orphan any in-flight hydration
     if (this.persistEnabled) {
       this.deletePersistentCache();
@@ -215,13 +217,23 @@ export class CircuitBreaker<T> {
     // within the 24h persistent ceiling), return it instantly and refresh in
     // the background. This prevents "Loading..." on every page reload when
     // the persistent cache is older than the TTL.
-    if (this.cache !== null) {
+    // Skip SWR when cacheTtlMs === 0 (caching disabled) — the breaker may be
+    // shared across calls with different request params (e.g. stocks vs commodities),
+    // so returning stale data from a different call is wrong.
+    if (this.cache !== null && this.cacheTtlMs > 0) {
       this.lastDataState = { mode: 'cached', timestamp: this.cache.timestamp, offline };
-      // Fire-and-forget background refresh
-      fn().then(result => this.recordSuccess(result)).catch(e => {
-        console.warn(`[${this.name}] Background refresh failed:`, e);
-        this.recordFailure(String(e));
-      });
+      // Fire-and-forget background refresh — guard against concurrent SWR fetches
+      // so that multiple callers with stale cache don't each spawn a parallel request.
+      if (!this.backgroundRefreshPromise) {
+        this.backgroundRefreshPromise = fn().then(result => {
+          this.recordSuccess(result);
+        }).catch(e => {
+          console.warn(`[${this.name}] Background refresh failed:`, e);
+          this.recordFailure(String(e));
+        }).finally(() => {
+          this.backgroundRefreshPromise = null;
+        });
+      }
       return this.cache.data as R;
     }
 

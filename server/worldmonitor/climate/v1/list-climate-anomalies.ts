@@ -18,10 +18,11 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/climate/v1/service_server';
 
 import { CHROME_UA } from '../../../_shared/constants';
-import { getCachedJson, setCachedJson } from '../../../_shared/redis';
+import { cachedFetchJson, getCachedJson } from '../../../_shared/redis';
 
 const REDIS_CACHE_KEY = 'climate:anomalies:v1';
 const REDIS_CACHE_TTL = 10800; // 3h — Open-Meteo Archive uses ERA5 reanalysis with 2-7 day lag
+const SEED_FRESHNESS_MS = 150 * 60 * 1000; // 2.5 hours
 
 /** The 15 monitored zones matching the legacy api/climate-anomalies.js list. */
 const ZONES: { name: string; lat: number; lon: number }[] = [
@@ -135,40 +136,66 @@ async function fetchZone(
   };
 }
 
+type AnomalyCache = { anomalies: ClimateAnomaly[]; pagination: undefined };
+
+async function trySeededData(): Promise<AnomalyCache | null> {
+  try {
+    const [seedData, seedMeta] = await Promise.all([
+      getCachedJson(REDIS_CACHE_KEY, true) as Promise<AnomalyCache | null>,
+      getCachedJson('seed-meta:climate:anomalies', true) as Promise<{ fetchedAt?: number } | null>,
+    ]);
+
+    if (!seedData?.anomalies?.length) return null;
+
+    const fetchedAt = seedMeta?.fetchedAt ?? 0;
+    const isFresh = Date.now() - fetchedAt < SEED_FRESHNESS_MS;
+
+    if (isFresh) return seedData;
+
+    if (!process.env.SEED_FALLBACK_CLIMATE) return seedData;
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export const listClimateAnomalies: ClimateServiceHandler['listClimateAnomalies'] = async (
   _ctx: ServerContext,
   _req: ListClimateAnomaliesRequest,
 ): Promise<ListClimateAnomaliesResponse> => {
-  // Redis shared cache
-  const cached = (await getCachedJson(REDIS_CACHE_KEY)) as ListClimateAnomaliesResponse | null;
-  if (cached?.anomalies?.length) return cached;
+  const seeded = await trySeededData();
+  if (seeded) return { anomalies: seeded.anomalies, pagination: undefined };
 
-  // Compute 30-day date range
-  const endDate = new Date().toISOString().slice(0, 10);
-  const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  let result: ListClimateAnomaliesResponse | null = null;
+  try {
+    result = await cachedFetchJson<ListClimateAnomaliesResponse>(
+      REDIS_CACHE_KEY,
+      REDIS_CACHE_TTL,
+      async () => {
+        const endDate = new Date().toISOString().slice(0, 10);
+        const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
 
-  // Fetch all 15 zones in parallel
-  const results = await Promise.allSettled(
-    ZONES.map((zone) => fetchZone(zone, startDate, endDate)),
-  );
+        const results = await Promise.allSettled(
+          ZONES.map((zone) => fetchZone(zone, startDate, endDate)),
+        );
 
-  // Collect fulfilled non-null results, log errors
-  const anomalies: ClimateAnomaly[] = [];
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      if (result.value != null) {
-        anomalies.push(result.value);
-      }
-    } else {
-      console.error('[CLIMATE]', result.reason?.message ?? result.reason);
-    }
+        const anomalies: ClimateAnomaly[] = [];
+        for (const r of results) {
+          if (r.status === 'fulfilled') {
+            if (r.value != null) anomalies.push(r.value);
+          } else {
+            console.error('[CLIMATE]', r.reason?.message ?? r.reason);
+          }
+        }
+
+        return anomalies.length > 0 ? { anomalies, pagination: undefined } : null;
+      },
+    );
+  } catch {
+    return { anomalies: [], pagination: undefined };
   }
-
-  const result: ListClimateAnomaliesResponse = { anomalies, pagination: undefined };
-  if (anomalies.length > 0) {
-    setCachedJson(REDIS_CACHE_KEY, result, REDIS_CACHE_TTL).catch(() => {});
-  }
-  return result;
+  return result || { anomalies: [], pagination: undefined };
 };
