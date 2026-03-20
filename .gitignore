@@ -50,3 +50,6 @@ _bmad/
 .github/agents/
 .github/prompts/
 .arcwright-ai/
+.arcwright-ai/tmp/
+.arcwright-ai/runs/
+.arcwright-ai/worktrees/
