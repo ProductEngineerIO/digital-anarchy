@@ -38,28 +38,20 @@ export function getBaselineSeverity(zScore: number): string {
 }
 
 // ========================================================================
-// Upstash Redis MGET helper (edge-compatible)
-// getCachedJson / setCachedJson are imported from ../../../_shared/redis.ts
+// Batch JSON read helper — delegates to shared Redis wrapper
+// getCachedJson / setCachedJson / getCachedJsonBatch are in ../../../_shared/redis.ts
+// All Redis access MUST route through that wrapper for prefix enforcement.
 // ========================================================================
 
+import { getCachedJsonBatch } from '../../../_shared/redis';
+
+/**
+ * Batch-reads JSON values for the given keys.
+ * Returns an ordered array (one entry per input key, null for missing/failed).
+ * Keys are prefixed automatically by the shared Redis wrapper (prod: / qa:).
+ */
 export async function mgetJson(keys: string[]): Promise<(unknown | null)[]> {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return keys.map(() => null);
-  try {
-    const resp = await fetch(`${url}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(['MGET', ...keys]),
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!resp.ok) return keys.map(() => null);
-    const data = (await resp.json()) as { result?: (string | null)[] };
-    return (data.result || []).map(v => v ? JSON.parse(v) : null);
-  } catch {
-    return keys.map(() => null);
-  }
+  if (keys.length === 0) return [];
+  const map = await getCachedJsonBatch(keys);
+  return keys.map(k => map.get(k) ?? null);
 }

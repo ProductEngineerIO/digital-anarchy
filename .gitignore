@@ -5,6 +5,9 @@ dist/
 *.log
 .env
 .env.local
+.env.*.local
+fork.env
+fork.env.local
 .playwright-mcp/
 .vercel
 api/\[domain\]/v1/\[rpc\].js

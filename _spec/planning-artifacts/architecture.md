@@ -568,13 +568,27 @@ export function doSomething(): void {
 
 **Redis Operations:**
 ```typescript
-// CORRECT — always use prefixed wrapper
-import { redis, prefixedKey } from '../_shared/redis';
-await redis.get(prefixedKey('ai:summary:US'));
+// CORRECT — always use the wrapper functions from server/_shared/redis.ts
+// Prefixing is applied internally — do NOT call prefixKey() at the call site.
+import { getCachedJson, setCachedJson, cachedFetchJson } from '../_shared/redis';
+const data = await getCachedJson('ai:summary:US');       // reads  prod:ai:summary:US  (or qa:…)
+await setCachedJson('ai:summary:US', value, ttlSeconds); // writes prod:ai:summary:US  (or qa:…)
 
-// FORBIDDEN — direct key without prefix
-await redis.get('ai:summary:US');
+// FORBIDDEN — direct key without using a wrapper function
+import { prefixKey } from '../_shared/redis';
+const client = new Redis();
+await client.get(prefixKey('ai:summary:US')); // ❌ bypasses REST wrapper
+
+// FORBIDDEN — raw key with no prefix at all
+await client.get('ai:summary:US'); // ❌ no prefix, collides across environments
 ```
+
+> **Note (Story 1.1):** The prefix scheme was aligned to the architecture spec in Story 1.1.
+> The implementation now uses `prod:` for production and `qa:` for all other environments
+> (preview, development). The previous SHA-based prefix (`{env}:{sha8}:`) was removed —
+> it caused per-deploy cache fragmentation that wasted the shared command quota.
+> All 53 server handler files already route through the wrapper functions — no handler
+> changes were needed. Cold-cache on first `prod:` deployment is acceptable; TTLs repopulate naturally.
 
 **Error Handling (Server):**
 ```typescript
