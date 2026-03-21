@@ -7,17 +7,22 @@ function errMsg(err: unknown): string {
 
 /**
  * Environment-based key prefix to avoid collisions when multiple deployments
- * share the same Upstash Redis instance (M-6 fix).
+ * share the same Upstash Redis instance.
+ *
+ * Architecture spec (ARCH-29): `prod:` for production, `qa:` for all other
+ * environments (preview, development). Simple and deterministic — no SHA
+ * variance, no cache fragmentation across preview deploys.
+ *
+ * Exported for unit testing; do not call directly in handlers — use prefixKey().
  */
-function getKeyPrefix(): string {
+export function getKeyPrefix(): string {
   const env = process.env.VERCEL_ENV; // 'production' | 'preview' | 'development'
-  if (!env || env === 'production') return '';
-  const sha = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) || 'dev';
-  return `${env}:${sha}:`;
+  if (!env || env === 'production') return 'prod:';
+  return 'qa:';
 }
 
 let cachedPrefix: string | undefined;
-function prefixKey(key: string): string {
+export function prefixKey(key: string): string {
   if (cachedPrefix === undefined) cachedPrefix = getKeyPrefix();
   if (!cachedPrefix) return key;
   return `${cachedPrefix}${key}`;
