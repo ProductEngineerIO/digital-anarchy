@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for buf breaking --against .git#branch=main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install buf CLI
+        run: go install github.com/bufbuild/buf/cmd/buf@v1.64.0
+
+      - name: Verify buf CLI version
+        run: buf --version
+
+      - name: Install sebuf protoc plugins
+        env:
+          GOPROXY: direct
+          GOPRIVATE: github.com/SebastienMelki
+        run: |
+          go install github.com/SebastienMelki/sebuf/cmd/protoc-gen-ts-client@v0.7.0
+          go install github.com/SebastienMelki/sebuf/cmd/protoc-gen-ts-server@v0.7.0
+          go install github.com/SebastienMelki/sebuf/cmd/protoc-gen-openapiv3@v0.7.0
+
+      - name: Install proto dependencies
+        run: cd proto && buf dep update
+
+      # Step 1: Codegen drift detection (NFR33)
+      - name: Verify codegen is up to date
+        run: |
+          make generate
+          if ! git diff --exit-code src/generated/ docs/api/; then
+            echo "::error::Codegen drift detected — run 'make generate' locally and commit the result"
+            exit 1
+          fi
+
+      # Step 2: Proto lint
+      - name: Lint protobuf files
+        run: make lint
+
+      # Step 3: TypeScript typecheck
+      - name: Typecheck
+        run: |
+          npm run typecheck
+          npm run typecheck:api
+
+      # Step 4: Unit tests
+      - name: Run unit tests
+        run: |
+          npm run test:data
+          npm run test:sidecar
+          npm run test:fork
+
+      # Step 5: Proto breaking change detection
+      - name: Check proto breaking changes
+        run: make breaking
+
+      # Step 6: Build
+      - name: Build
+        run: npm run build:full
+
+      # Step 7: Playwright E2E (visual regression tests excluded per ARCH-46)
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        run: npm run test:e2e:full
+
+  # Fork test gate — only runs when src/fork/ changes
+  fork-test-gate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check fork test coverage
+        run: |
+          # Get changed files in this PR
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'src/fork/' || true)
+          if [ -n "$CHANGED" ]; then
+            echo "Fork files changed:"
+            echo "$CHANGED"
+            # Verify test directory has at least one test file
+            TEST_COUNT=$(find src/fork/__tests__ -name '*.test.mjs' -o -name '*.test.mts' 2>/dev/null | wc -l)
+            if [ "$TEST_COUNT" -eq 0 ]; then
+              echo "::error::PRs that change src/fork/ must have companion tests in src/fork/__tests__/"
+              exit 1
+            fi
+            echo "✅ Found $TEST_COUNT fork test file(s)"
+          else
+            echo "No src/fork/ changes detected — skipping fork test gate"
+          fi
